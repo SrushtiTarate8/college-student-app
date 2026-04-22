@@ -106,11 +106,11 @@ class DayLog {
 // ─────────────────────────────────────────────
 
 class _Store {
-  static const _kSubjects   = 'att_subjects';
-  static const _kDayLogs    = 'att_daylogs';
-  static const _kCriteria   = 'att_criteria';
-  static const _kTheme      = 'att_theme';
-  static const _kTimetable  = 'att_timetable';
+  static const _kSubjects  = 'att_subjects';
+  static const _kDayLogs   = 'att_daylogs';
+  static const _kCriteria  = 'att_criteria';
+  static const _kTheme     = 'att_theme';
+  static const _kTimetable = 'att_timetable';
 
   static Future<void> save({
     required List<Subject> subjects,
@@ -124,7 +124,6 @@ class _Store {
     await p.setString(_kDayLogs, jsonEncode(dayLogs.map((k, v) => MapEntry(k, v.toJson()))));
     await p.setInt(_kCriteria, criteria);
     await p.setString(_kTheme, theme);
-    // Store timetable as Map<String, List<String>>
     final ttEncoded = timetable.map((k, v) => MapEntry(k.toString(), v));
     await p.setString(_kTimetable, jsonEncode(ttEncoded));
   }
@@ -147,7 +146,6 @@ class _Store {
           .map((k, v) => MapEntry(k, DayLog.fromJson(v as Map<String, dynamic>)));
     }
 
-    // Load timetable
     Map<int, List<String>> timetable = _defaultTimetable();
     final tr = p.getString(_kTimetable);
     if (tr != null) {
@@ -171,15 +169,14 @@ class _Store {
     await p.remove(_kDayLogs);
     await p.remove(_kCriteria);
     await p.remove(_kTheme);
-    // Note: timetable is NOT cleared on reset — user keeps their schedule
   }
 
   static Map<int, List<String>> _defaultTimetable() => {
-    1: ['PSDL', 'Devops', 'DE',   'ICS',  'CC'],
-    2: ['EBI',  'CC',     'FSD',  'ICS',  'FSDL'],
-    3: ['DEL',  'Devops', 'ICS',  'CC',   'DE'],
-    4: ['FSD',  'EBI',    'CCL',  '',     ''],
-    5: ['Devops','DE',    'PSDL', 'FSD',  ''],
+    1: ['PSDL', 'Devops', 'DE', 'ICS', 'CC'],
+    2: ['EBI', 'CC', 'FSD', 'ICS', 'FSDL'],
+    3: ['DEL', 'Devops', 'ICS', 'CC', 'DE'],
+    4: ['FSD', 'EBI', 'CCL', '', ''],
+    5: ['Devops', 'DE', 'PSDL', 'FSD', ''],
     6: [],
     7: [],
   };
@@ -197,25 +194,21 @@ class AttendanceScreen extends StatefulWidget {
 }
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
-  int    _tab      = 0;
-  int    _criteria = 75;
-  String _theme    = 'System Default';
-  bool   _loading  = true;
+  int _tab = 0;
+  int _criteria = 75;
+  String _theme = 'System Default';
+  bool _loading = true;
 
-  List<Subject>         _subjects = [];
-  Map<String, DayLog>   _dayLogs  = {};
-  DateTime _calMonth     = DateTime.now();
+  List<Subject> _subjects = [];
+  Map<String, DayLog> _dayLogs = {};
+  DateTime _calMonth = DateTime.now();
   DateTime _selectedDate = DateTime.now();
 
-  // Timetable: weekday 1=Mon .. 7=Sun
   Map<int, List<String>> _timetable = {};
 
-  // Default subject names (used only on first launch)
   static const _defaultNames = [
-    'DEL','Devops','ICS','CC','CCL','DE','EBI','FSD','PSDL','FSDL'
+    'DEL', 'Devops', 'ICS', 'CC', 'CCL', 'DE', 'EBI', 'FSD', 'PSDL', 'FSDL'
   ];
-
-  // ── lifecycle ────────────────────────────────
 
   @override
   void initState() {
@@ -226,9 +219,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Future<void> _load() async {
     final data = await _Store.load();
     setState(() {
-      _criteria  = data['criteria']  as int;
-      _theme     = data['theme']     as String;
-      _dayLogs   = data['dayLogs']   as Map<String, DayLog>;
+      _criteria = data['criteria'] as int;
+      _theme = data['theme'] as String;
+      _dayLogs = data['dayLogs'] as Map<String, DayLog>;
       _timetable = data['timetable'] as Map<int, List<String>>;
       final saved = data['subjects'] as List<Subject>;
       _subjects = saved.isNotEmpty
@@ -239,23 +232,24 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _persist() => _Store.save(
-      subjects:  _subjects,
-      dayLogs:   _dayLogs,
-      criteria:  _criteria,
-      theme:     _theme,
+      subjects: _subjects,
+      dayLogs: _dayLogs,
+      criteria: _criteria,
+      theme: _theme,
       timetable: _timetable);
 
-  // ── helpers ──────────────────────────────────
-
   String _dk(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   DayLog _logOf(DateTime d) =>
       _dayLogs.putIfAbsent(_dk(d), () => DayLog(date: d));
 
   Subject? _sub(String name) {
-    try { return _subjects.firstWhere((s) => s.name == name); }
-    catch (_) { return null; }
+    try {
+      return _subjects.firstWhere((s) => s.name == name);
+    } catch (_) {
+      return null;
+    }
   }
 
   double get _overallPct {
@@ -274,18 +268,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   void _mark(Subject sub, AttendanceMark mark, DateTime date) {
     setState(() {
-      final log  = _logOf(date);
+      final log = _logOf(date);
       final prev = log.subjectMarks[sub.name];
       if (prev == AttendanceMark.attended) sub.attended = (sub.attended - 1).clamp(0, 9999);
-      if (prev == AttendanceMark.missed)   sub.missed   = (sub.missed   - 1).clamp(0, 9999);
-      if (prev == AttendanceMark.off)      sub.off      = (sub.off      - 1).clamp(0, 9999);
+      if (prev == AttendanceMark.missed) sub.missed = (sub.missed - 1).clamp(0, 9999);
+      if (prev == AttendanceMark.off) sub.off = (sub.off - 1).clamp(0, 9999);
       if (prev == mark) {
         log.subjectMarks.remove(sub.name);
       } else {
         log.subjectMarks[sub.name] = mark;
         if (mark == AttendanceMark.attended) sub.attended++;
-        if (mark == AttendanceMark.missed)   sub.missed++;
-        if (mark == AttendanceMark.off)      sub.off++;
+        if (mark == AttendanceMark.missed) sub.missed++;
+        if (mark == AttendanceMark.off) sub.off++;
       }
     });
     _persist();
@@ -308,12 +302,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  String _wd(int w) => const ['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'][w];
-  String _wdShort(int w) => const ['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'][w];
-  String _mn(int m) => const ['','January','February','March','April','May','June',
-    'July','August','September','October','November','December'][m];
+  String _wd(int w) => const ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][w];
+  String _mn(int m) => const [
+    '', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ][m];
 
-  // Max slots across all days (for grid rows)
   int get _maxSlots {
     int max = 0;
     for (int d = 1; d <= 7; d++) {
@@ -322,8 +316,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
     return max < 1 ? 1 : max;
   }
-
-  // ── build ─────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -335,8 +327,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       bottomNavigationBar: SafeArea(top: false, child: _bottomNav()),
     );
   }
-
-  // ── app bar ───────────────────────────────────
 
   PreferredSizeWidget _appBar() {
     String title;
@@ -371,7 +361,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           onPressed: _sheetEditTimetable,
         ));
         break;
-      case 2: title = 'Calendar'; break;
+      case 2:
+        title = 'Calendar';
+        break;
       case 3:
         title = 'Subjects';
         actions.add(IconButton(icon: const Icon(Icons.add), onPressed: _dlgAddSubject));
@@ -384,19 +376,19 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           child: const Text('REMOVE ADS', style: TextStyle(fontSize: 11)),
         ));
         break;
-      default: title = 'Attendance';
+      default:
+        title = 'Attendance';
     }
 
     return AppBar(
       backgroundColor: Colors.white,
       elevation: 0.5,
       title: Text(title,
-          style: const TextStyle(fontSize: 15, color: Colors.black87, fontWeight: FontWeight.w500)),
+          style: const TextStyle(
+              fontSize: 15, color: Colors.black87, fontWeight: FontWeight.w500)),
       actions: actions,
     );
   }
-
-  // ── body router ───────────────────────────────
 
   Widget _body() {
     switch (_tab) {
@@ -414,7 +406,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   // ═════════════════════════════════════════════
 
   Widget _tabToday() {
-    final log  = _logOf(_selectedDate);
+    final log = _logOf(_selectedDate);
     final subs = (_timetable[_selectedDate.weekday] ?? [])
         .where((n) => n.isNotEmpty)
         .map(_sub)
@@ -424,36 +416,49 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
-        // ─ Day banner
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-              color: Colors.teal.shade700, borderRadius: BorderRadius.circular(10)),
+              color: Colors.teal.shade700,
+              borderRadius: BorderRadius.circular(10)),
           child: Row(children: [
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Day status:', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                Text(_statusLabel(log.dayStatus),
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-              ],
-            )),
-            _bulkBtn(Icons.block,                 'Clear', () => _markAll(AttendanceMark.notMarked, _selectedDate)),
+            Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Day status:',
+                        style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    Text(_statusLabel(log.dayStatus),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14)),
+                  ],
+                )),
+            _bulkBtn(Icons.block, 'Clear',
+                    () => _markAll(AttendanceMark.notMarked, _selectedDate)),
             const SizedBox(width: 8),
-            _bulkBtn(Icons.remove_circle_outline, 'Off',   () => _markAll(AttendanceMark.off,       _selectedDate)),
+            _bulkBtn(Icons.remove_circle_outline, 'Off',
+                    () => _markAll(AttendanceMark.off, _selectedDate)),
             const SizedBox(width: 8),
-            _bulkBtn(Icons.close,                 'Miss',  () => _markAll(AttendanceMark.missed,    _selectedDate)),
+            _bulkBtn(Icons.close, 'Miss',
+                    () => _markAll(AttendanceMark.missed, _selectedDate)),
             const SizedBox(width: 8),
-            _bulkBtn(Icons.check,                 'Att',   () => _markAll(AttendanceMark.attended,  _selectedDate), active: true),
+            _bulkBtn(Icons.check, 'Att',
+                    () => _markAll(AttendanceMark.attended, _selectedDate),
+                active: true),
           ]),
         ),
         const SizedBox(height: 10),
         if (subs.isEmpty)
           Padding(
             padding: const EdgeInsets.all(32),
-            child: Center(child: Text('No classes today', style: TextStyle(color: Colors.grey.shade500))),
+            child: Center(
+                child: Text('No classes today',
+                    style: TextStyle(color: Colors.grey.shade500))),
           ),
-        ...subs.map((s) => _cardToday(s, log.subjectMarks[s.name] ?? AttendanceMark.notMarked)),
+        ...subs.map(
+                (s) => _cardToday(s, log.subjectMarks[s.name] ?? AttendanceMark.notMarked)),
       ],
     );
   }
@@ -468,12 +473,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  Widget _bulkBtn(IconData icon, String label, VoidCallback cb, {bool active = false}) =>
+  Widget _bulkBtn(IconData icon, String label, VoidCallback cb,
+      {bool active = false}) =>
       GestureDetector(
         onTap: cb,
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(
-            width: 30, height: 30,
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: active ? Colors.green.shade600 : Colors.black26,
@@ -486,13 +493,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       );
 
   Widget _cardToday(Subject sub, AttendanceMark cur) {
-    final pColor = sub.percentage >= sub.criteria ? Colors.green.shade600 : Colors.red.shade400;
+    final pColor =
+    sub.percentage >= sub.criteria ? Colors.green.shade600 : Colors.red.shade400;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)
+        ],
       ),
       child: Column(children: [
         Padding(
@@ -500,13 +510,17 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           child: Row(children: [
             _pctBadge(sub.percentage, sub.criteria, pColor),
             const SizedBox(width: 14),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(sub.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                Text(sub.statusMessage, style: TextStyle(color: pColor, fontSize: 12)),
-              ],
-            )),
+            Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(sub.name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 15)),
+                    Text(sub.statusMessage,
+                        style: TextStyle(color: pColor, fontSize: 12)),
+                  ],
+                )),
           ]),
         ),
         const Divider(height: 1),
@@ -515,13 +529,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              _mkBtn(Icons.block,                 AttendanceMark.notMarked, cur, sub),
+              _mkBtn(Icons.block, AttendanceMark.notMarked, cur, sub),
               const SizedBox(width: 12),
-              _mkBtn(Icons.remove_circle_outline, AttendanceMark.off,       cur, sub),
+              _mkBtn(Icons.remove_circle_outline, AttendanceMark.off, cur, sub),
               const SizedBox(width: 12),
-              _mkBtn(Icons.close,                 AttendanceMark.missed,    cur, sub),
+              _mkBtn(Icons.close, AttendanceMark.missed, cur, sub),
               const SizedBox(width: 12),
-              _mkBtn(Icons.check,                 AttendanceMark.attended,  cur, sub),
+              _mkBtn(Icons.check, AttendanceMark.attended, cur, sub),
             ],
           ),
         ),
@@ -531,14 +545,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _mkBtn(IconData icon, AttendanceMark mark, AttendanceMark cur, Subject sub) {
     final on = cur == mark;
-    final c = mark == AttendanceMark.attended ? Colors.green
-        : mark == AttendanceMark.missed   ? Colors.red
-        : mark == AttendanceMark.off      ? Colors.orange
+    final c = mark == AttendanceMark.attended
+        ? Colors.green
+        : mark == AttendanceMark.missed
+        ? Colors.red
+        : mark == AttendanceMark.off
+        ? Colors.orange
         : Colors.grey;
     return GestureDetector(
       onTap: () => _mark(sub, mark, _selectedDate),
       child: Container(
-        width: 32, height: 32,
+        width: 32,
+        height: 32,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: on ? c : Colors.transparent,
@@ -554,13 +572,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   // ═════════════════════════════════════════════
 
   Widget _tabTimetable() {
-    final today = DateTime.now().weekday; // 1=Mon..7=Sun
-    final days  = [1, 2, 3, 4, 5, 6, 7];
+    final today = DateTime.now().weekday;
+    final days = [1, 2, 3, 4, 5, 6, 7];
     final maxRows = _maxSlots;
 
     return Column(
       children: [
-        // ─ Day header row
         Container(
           color: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 6),
@@ -572,11 +589,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _wdShort(d),
+                      _wd(d),
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
-                        color: isToday ? Colors.teal.shade700 : Colors.grey.shade600,
+                        fontWeight:
+                        isToday ? FontWeight.bold : FontWeight.normal,
+                        color: isToday
+                            ? Colors.teal.shade700
+                            : Colors.grey.shade600,
                       ),
                     ),
                     if (isToday)
@@ -593,34 +613,30 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           ),
         ),
         const Divider(height: 1),
-        // ─ Grid body
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: days.map((d) {
-                final slots = (_timetable[d] ?? []).where((s) => s.isNotEmpty).toList();
+                final slots =
+                (_timetable[d] ?? []).where((s) => s.isNotEmpty).toList();
                 final isToday = d == today;
                 return Expanded(
                   child: Column(
                     children: List.generate(maxRows, (i) {
                       final name = i < slots.length ? slots[i] : '';
                       if (name.isEmpty) {
-                        return Container(
-                          margin: const EdgeInsets.all(2),
-                          height: 72,
-                        );
+                        return Container(margin: const EdgeInsets.all(2), height: 72);
                       }
                       return GestureDetector(
                         onTap: () {
-                          // Navigate to today tab with this day selected
                           final now = DateTime.now();
-                          // Find nearest occurrence of weekday d
                           int diff = d - now.weekday;
                           final target = now.add(Duration(days: diff));
                           setState(() {
-                            _selectedDate = DateTime(target.year, target.month, target.day);
+                            _selectedDate = DateTime(
+                                target.year, target.month, target.day);
                             _tab = 0;
                           });
                         },
@@ -636,7 +652,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           child: Stack(
                             children: [
                               Padding(
-                                padding: const EdgeInsets.fromLTRB(6, 6, 4, 4),
+                                padding:
+                                const EdgeInsets.fromLTRB(6, 6, 4, 4),
                                 child: Text(
                                   name,
                                   style: const TextStyle(
@@ -646,22 +663,26 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                   ),
                                 ),
                               ),
-                              // Small percentage indicator if subject exists
                               if (_sub(name) != null)
                                 Positioned(
-                                  bottom: 4, right: 4,
+                                  bottom: 4,
+                                  right: 4,
                                   child: Builder(builder: (_) {
                                     final s = _sub(name)!;
                                     final ok = s.percentage >= s.criteria;
                                     return Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 4, vertical: 1),
                                       decoration: BoxDecoration(
-                                        color: ok ? Colors.green.shade600 : Colors.red.shade400,
+                                        color: ok
+                                            ? Colors.green.shade600
+                                            : Colors.red.shade400,
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: Text(
                                         '${s.percentage.toStringAsFixed(0)}%',
-                                        style: const TextStyle(color: Colors.white, fontSize: 9),
+                                        style: const TextStyle(
+                                            color: Colors.white, fontSize: 9),
                                       ),
                                     );
                                   }),
@@ -677,25 +698,38 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             ),
           ),
         ),
-        // ─ Legend / hint
         Container(
           color: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
-              Container(width: 10, height: 10,
-                  decoration: BoxDecoration(color: Colors.teal.shade700, borderRadius: BorderRadius.circular(2))),
+              Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                      color: Colors.teal.shade700,
+                      borderRadius: BorderRadius.circular(2))),
               const SizedBox(width: 4),
-              Text("Today's classes", style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              Text("Today's classes",
+                  style:
+                  TextStyle(fontSize: 11, color: Colors.grey.shade600)),
               const SizedBox(width: 16),
-              Container(width: 10, height: 10,
-                  decoration: BoxDecoration(color: Colors.blueGrey.shade700, borderRadius: BorderRadius.circular(2))),
+              Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                      color: Colors.blueGrey.shade700,
+                      borderRadius: BorderRadius.circular(2))),
               const SizedBox(width: 4),
-              Text('Other days', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              Text('Other days',
+                  style:
+                  TextStyle(fontSize: 11, color: Colors.grey.shade600)),
               const Spacer(),
               Icon(Icons.edit_outlined, size: 14, color: Colors.grey.shade400),
               const SizedBox(width: 3),
-              Text('Tap ✏ to edit', style: TextStyle(fontSize: 11, color: Colors.grey.shade400)),
+              Text('Tap ✏ to edit',
+                  style:
+                  TextStyle(fontSize: 11, color: Colors.grey.shade400)),
             ],
           ),
         ),
@@ -703,12 +737,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  // ─────────────────────────────────────────────
-  //  EDIT TIMETABLE SHEET
-  // ─────────────────────────────────────────────
-
   void _sheetEditTimetable() {
-    // Deep copy for editing
     final editTT = Map<int, List<String>>.fromEntries(
       List.generate(7, (i) {
         final d = i + 1;
@@ -740,15 +769,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   // ═════════════════════════════════════════════
 
   Widget _tabCalendar() {
-    final now      = DateTime.now();
-    final first    = DateTime(_calMonth.year, _calMonth.month, 1);
-    final days     = DateTime(_calMonth.year, _calMonth.month + 1, 0).day;
-    final offset   = first.weekday - 1;
+    final now = DateTime.now();
+    final first = DateTime(_calMonth.year, _calMonth.month, 1);
+    final days = DateTime(_calMonth.year, _calMonth.month + 1, 0).day;
+    final offset = first.weekday - 1;
 
     int nm = 0, off = 0, miss = 0, att = 0, mix = 0;
     for (int d = 1; d <= days; d++) {
       final date = DateTime(_calMonth.year, _calMonth.month, d);
-      final log  = _dayLogs[_dk(date)];
+      final log = _dayLogs[_dk(date)];
       switch (log?.dayStatus ?? AttendanceMark.notMarked) {
         case AttendanceMark.attended: att++;  break;
         case AttendanceMark.missed:   miss++; break;
@@ -757,126 +786,176 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         default:                      nm++;
       }
     }
-    int ta = _subjects.fold(0,(s,e)=>s+e.attended);
-    int tm = _subjects.fold(0,(s,e)=>s+e.missed);
-    int to = _subjects.fold(0,(s,e)=>s+e.off);
-    int tt = _subjects.fold(0,(s,e)=>s+e.total);
+    int ta = _subjects.fold(0, (s, e) => s + e.attended);
+    int tm = _subjects.fold(0, (s, e) => s + e.missed);
+    int to = _subjects.fold(0, (s, e) => s + e.off);
+    int tt = _subjects.fold(0, (s, e) => s + e.total);
 
-    return SingleChildScrollView(child: Column(children: [
-      // Month nav
-      Container(color: Colors.white, padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          IconButton(icon: const Icon(Icons.chevron_left),
-              onPressed: () => setState(() => _calMonth = DateTime(_calMonth.year, _calMonth.month-1))),
-          Text('${_mn(_calMonth.month)} ${_calMonth.year}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          IconButton(icon: const Icon(Icons.chevron_right),
-              onPressed: () => setState(() => _calMonth = DateTime(_calMonth.year, _calMonth.month+1))),
-        ]),
-      ),
-      // Weekday header
-      Container(color: Colors.white, padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(children: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d) =>
-            Expanded(child: Center(child: Text(d, style: TextStyle(fontSize: 11, color: Colors.grey.shade600))))
-        ).toList()),
-      ),
-      // Grid
-      Container(color: Colors.white, padding: const EdgeInsets.only(bottom: 10),
-        child: GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 7, childAspectRatio: 0.85),
-          itemCount: offset + days,
-          itemBuilder: (ctx, i) {
-            if (i < offset) return const SizedBox();
-            final day  = i - offset + 1;
-            final date = DateTime(_calMonth.year, _calMonth.month, day);
-            final log  = _dayLogs[_dk(date)];
-            final mark = (log != null && log.subjectMarks.isNotEmpty)
-                ? log.dayStatus : AttendanceMark.notMarked;
-            final isToday  = date.year==now.year && date.month==now.month && date.day==now.day;
-            final isSel    = date.year==_selectedDate.year && date.month==_selectedDate.month && date.day==_selectedDate.day;
-            return GestureDetector(
-              onTap: () => setState(() { _selectedDate = date; _tab = 0; }),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Container(
-                  width: 28, height: 28,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: isToday ? Border.all(color: Colors.teal.shade400, width: 2) : null,
-                    color:  isSel && !isToday ? Colors.teal.shade100 : null,
-                  ),
-                  child: Center(child: Text('$day', style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
-                    color: isToday ? Colors.teal.shade700 : Colors.black87,
-                  ))),
-                ),
-                const SizedBox(height: 2),
-                Container(width:5,height:5,decoration: BoxDecoration(shape: BoxShape.circle, color: _dotColor(mark))),
-              ]),
-            );
-          },
-        ),
-      ),
-      const SizedBox(height: 8),
-      // Day summary
-      _smCard(
-        children: [
-          _calStat('$nm',   'Not marked', Colors.grey.shade400),
-          _calStat('$off',  'Off',         Colors.orange),
-          _calStat('$miss', 'Missed',      Colors.red),
-          _calStat('$att',  'Attended',    Colors.green),
-          _calStat('$mix',  'Mixed',       Colors.purple),
-        ],
-        footer: 'Days',
-      ),
-      const SizedBox(height: 8),
-      // Lecture totals
-      Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12),
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-          _calStat('$to', 'Off',     Colors.grey),
-          _calStat('$tm', 'Missed',  Colors.grey),
-          _calStat('$ta', 'Attended',Colors.grey),
-          _calStat('$tt', 'Total',   Colors.grey),
-          _calStat('${_overallPct.toStringAsFixed(2)}%', 'Percent', Colors.grey),
-        ]),
-      ),
-      const SizedBox(height: 16),
-    ]));
+    return SingleChildScrollView(
+        child: Column(children: [
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              IconButton(
+                  icon: const Icon(Icons.chevron_left),
+                  onPressed: () => setState(() =>
+                  _calMonth = DateTime(_calMonth.year, _calMonth.month - 1))),
+              Text('${_mn(_calMonth.month)} ${_calMonth.year}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              IconButton(
+                  icon: const Icon(Icons.chevron_right),
+                  onPressed: () => setState(() =>
+                  _calMonth = DateTime(_calMonth.year, _calMonth.month + 1))),
+            ]),
+          ),
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+                children: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                    .map((d) => Expanded(
+                    child: Center(
+                        child: Text(d,
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600)))))
+                    .toList()),
+          ),
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.only(bottom: 10),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 7, childAspectRatio: 0.85),
+              itemCount: offset + days,
+              itemBuilder: (ctx, i) {
+                if (i < offset) return const SizedBox();
+                final day = i - offset + 1;
+                final date = DateTime(_calMonth.year, _calMonth.month, day);
+                final log = _dayLogs[_dk(date)];
+                final mark = (log != null && log.subjectMarks.isNotEmpty)
+                    ? log.dayStatus
+                    : AttendanceMark.notMarked;
+                final isToday = date.year == now.year &&
+                    date.month == now.month &&
+                    date.day == now.day;
+                final isSel = date.year == _selectedDate.year &&
+                    date.month == _selectedDate.month &&
+                    date.day == _selectedDate.day;
+                return GestureDetector(
+                  onTap: () => setState(() {
+                    _selectedDate = date;
+                    _tab = 0;
+                  }),
+                  child:
+                  Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: isToday
+                            ? Border.all(color: Colors.teal.shade400, width: 2)
+                            : null,
+                        color: isSel && !isToday ? Colors.teal.shade100 : null,
+                      ),
+                      child: Center(
+                          child: Text('$day',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: isToday
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                color: isToday
+                                    ? Colors.teal.shade700
+                                    : Colors.black87,
+                              ))),
+                    ),
+                    const SizedBox(height: 2),
+                    Container(
+                        width: 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                            shape: BoxShape.circle, color: _dotColor(mark))),
+                  ]),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          _smCard(
+            children: [
+              _calStat('$nm', 'Not marked', Colors.grey.shade400),
+              _calStat('$off', 'Off', Colors.orange),
+              _calStat('$miss', 'Missed', Colors.red),
+              _calStat('$att', 'Attended', Colors.green),
+              _calStat('$mix', 'Mixed', Colors.purple),
+            ],
+            footer: 'Days',
+          ),
+          const SizedBox(height: 8),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+            decoration: BoxDecoration(
+                color: Colors.white, borderRadius: BorderRadius.circular(10)),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+              _calStat('$to', 'Off', Colors.grey),
+              _calStat('$tm', 'Missed', Colors.grey),
+              _calStat('$ta', 'Attended', Colors.grey),
+              _calStat('$tt', 'Total', Colors.grey),
+              _calStat('${_overallPct.toStringAsFixed(2)}%', 'Percent', Colors.grey),
+            ]),
+          ),
+          const SizedBox(height: 16),
+        ]));
   }
 
   Widget _smCard({required List<Widget> children, required String footer}) =>
       Container(
         margin: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+        decoration: BoxDecoration(
+            color: Colors.white, borderRadius: BorderRadius.circular(10)),
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: children),
+            child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: children),
           ),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 6),
             decoration: BoxDecoration(
               color: Colors.teal.shade700,
-              borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10)),
+              borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(10),
+                  bottomRight: Radius.circular(10)),
             ),
-            child: Center(child: Text(footer, style: const TextStyle(color: Colors.white, fontSize: 12))),
+            child: Center(
+                child: Text(footer,
+                    style: const TextStyle(color: Colors.white, fontSize: 12))),
           ),
         ]),
       );
 
   Widget _calStat(String v, String label, Color dot) => Column(children: [
     Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(width:7,height:7,decoration: BoxDecoration(shape: BoxShape.circle, color: dot)),
+      Container(
+          width: 7,
+          height: 7,
+          decoration:
+          BoxDecoration(shape: BoxShape.circle, color: dot)),
       const SizedBox(width: 3),
-      Text(v, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+      Text(v,
+          style: const TextStyle(
+              fontWeight: FontWeight.bold, fontSize: 14)),
     ]),
-    Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 10)),
+    Text(label,
+        style: TextStyle(color: Colors.grey.shade600, fontSize: 10)),
   ]);
 
   // ═════════════════════════════════════════════
@@ -884,22 +963,37 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   // ═════════════════════════════════════════════
 
   Widget _tabSubjects() {
-    int ta=_subjects.fold(0,(s,e)=>s+e.attended);
-    int tm=_subjects.fold(0,(s,e)=>s+e.missed);
-    int to=_subjects.fold(0,(s,e)=>s+e.off);
-    int tt=_subjects.fold(0,(s,e)=>s+e.total);
+    int ta = _subjects.fold(0, (s, e) => s + e.attended);
+    int tm = _subjects.fold(0, (s, e) => s + e.missed);
+    int to = _subjects.fold(0, (s, e) => s + e.off);
+    int tt = _subjects.fold(0, (s, e) => s + e.total);
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
         _subCard(
           name: 'Overall',
-          pct: _overallPct, criteria: _criteria,
-          msg: _overallNeeded > 0 ? 'need to attend $_overallNeeded lectures' : tt==0 ? 'no lectures yet' : 'on track',
-          att: ta, miss: tm, off: to, tot: tt, onTap: () {},
+          pct: _overallPct,
+          criteria: _criteria,
+          msg: _overallNeeded > 0
+              ? 'need to attend $_overallNeeded lectures'
+              : tt == 0
+              ? 'no lectures yet'
+              : 'on track',
+          att: ta,
+          miss: tm,
+          off: to,
+          tot: tt,
+          onTap: () {},
         ),
         ..._subjects.map((s) => _subCard(
-          name: s.name, pct: s.percentage, criteria: s.criteria,
-          msg: s.statusMessage, att: s.attended, miss: s.missed, off: s.off, tot: s.total,
+          name: s.name,
+          pct: s.percentage,
+          criteria: s.criteria,
+          msg: s.statusMessage,
+          att: s.attended,
+          miss: s.missed,
+          off: s.off,
+          tot: s.total,
           onTap: () => _sheetSubjectDetail(s),
         )),
       ],
@@ -907,12 +1001,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Widget _subCard({
-    required String name, required double pct, required int criteria,
-    required String msg, required int att, required int miss, required int off, required int tot,
+    required String name,
+    required double pct,
+    required int criteria,
+    required String msg,
+    required int att,
+    required int miss,
+    required int off,
+    required int tot,
     required VoidCallback onTap,
   }) {
     final ok = pct >= criteria;
-    final c  = ok ? Colors.green.shade600 : Colors.red.shade400;
+    final c = ok ? Colors.green.shade600 : Colors.red.shade400;
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -921,32 +1021,44 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)],
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)
+          ],
           border: Border(left: BorderSide(color: c, width: 4)),
         ),
         child: Row(children: [
           _pctBadge(pct, criteria, c),
           const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            const SizedBox(height: 2),
-            Text(msg, style: TextStyle(color: c, fontSize: 12)),
-            const SizedBox(height: 4),
-            Text('Att: $att  Miss: $miss  Off: $off  Tot: $tot',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-          ])),
+          Expanded(
+              child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 15)),
+                const SizedBox(height: 2),
+                Text(msg, style: TextStyle(color: c, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text('Att: $att  Miss: $miss  Off: $off  Tot: $tot',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+              ])),
         ]),
       ),
     );
   }
 
   Widget _pctBadge(double pct, int criteria, Color c) => Container(
-    width: 54, height: 54,
-    decoration: BoxDecoration(color: c.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
+    width: 54,
+    height: 54,
+    decoration: BoxDecoration(
+        color: c.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8)),
     child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Text(pct.toStringAsFixed(2), style: TextStyle(color: c, fontWeight: FontWeight.bold, fontSize: 12)),
+      Text(pct.toStringAsFixed(2),
+          style: TextStyle(
+              color: c, fontWeight: FontWeight.bold, fontSize: 12)),
       Container(height: 1, color: c.withOpacity(0.4), width: 40),
-      Text('$criteria', style: TextStyle(color: c.withOpacity(0.8), fontSize: 12)),
+      Text('$criteria',
+          style: TextStyle(color: c.withOpacity(0.8), fontSize: 12)),
     ]),
   );
 
@@ -956,37 +1068,57 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _tabSettings() => ListView(children: [
     _sSection('General'),
-    _sTile(icon: Icons.track_changes,      title: 'Set criteria',  subtitle: '$_criteria%',                     onTap: _dlgCriteria),
-    //_sTile(icon: Icons.brightness_medium,  title: 'Set theme',     subtitle: '$_theme, using App colors',       onTap: _dlgTheme),
+    _sTile(
+        icon: Icons.track_changes,
+        title: 'Set criteria',
+        subtitle: '$_criteria%',
+        onTap: _dlgCriteria),
     _sSection('Database'),
-    _sTile(icon: Icons.import_export,      title: 'Backup / Restore', subtitle: 'Save or load your attendance data.',         onTap: _dlgBackupRestore),
-    _sTile(icon: Icons.description_outlined, title: 'Export data as CSV', subtitle: 'Preview a CSV summary of all subjects.', onTap: _exportCsv),
+    _sTile(
+        icon: Icons.import_export,
+        title: 'Backup / Restore',
+        subtitle: 'Save or load your attendance data.',
+        onTap: _dlgBackupRestore),
+    _sTile(
+        icon: Icons.description_outlined,
+        title: 'Export data as CSV',
+        subtitle: 'Preview a CSV summary of all subjects.',
+        onTap: _exportCsv),
     _sSection('Attendance'),
-    _sTile(icon: Icons.restart_alt, title: 'Reset all attendance',
+    _sTile(
+        icon: Icons.restart_alt,
+        title: 'Reset all attendance',
         subtitle: 'Clears every subject back to 0 and deletes all day logs.',
-        onTap: _dlgReset, titleColor: Colors.red.shade600),
-    _sSection('App'),
-   // _sTile(icon: Icons.workspace_premium, title: 'Upgrade to Premium', onTap: () => _snack('Premium coming soon!')),
-  //  _sTile(icon: Icons.share,             title: 'Share App',           onTap: () => _snack('Share feature coming soon!')),
-  //  _sTile(icon: Icons.star_rate,         title: 'Rate on Google Play', onTap: () => _snack('Opening Play Store...')),
- //   _sTile(icon: Icons.people_outline,    title: 'Contact us', subtitle: 'Suggestions, bugs, questions', onTap: _dlgContact),
- //   _sTile(icon: Icons.info_outline,      title: 'App info',            onTap: _dlgAppInfo),
+        onTap: _dlgReset,
+        titleColor: Colors.red.shade600),
     const SizedBox(height: 20),
   ]);
 
   Widget _sSection(String t) => Padding(
-    padding: const EdgeInsets.fromLTRB(16,18,16,4),
-    child: Text(t, style: TextStyle(color: Colors.teal.shade700, fontWeight: FontWeight.w600, fontSize: 13)),
+    padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
+    child: Text(t,
+        style: TextStyle(
+            color: Colors.teal.shade700,
+            fontWeight: FontWeight.w600,
+            fontSize: 13)),
   );
 
-  Widget _sTile({required IconData icon, required String title, String? subtitle,
-    required VoidCallback onTap, Color? titleColor}) =>
+  Widget _sTile(
+      {required IconData icon,
+        required String title,
+        String? subtitle,
+        required VoidCallback onTap,
+        Color? titleColor}) =>
       ListTile(
         tileColor: Colors.white,
         leading: Icon(icon, color: titleColor ?? Colors.grey.shade600),
-        title: Text(title, style: TextStyle(fontSize: 14, color: titleColor ?? Colors.black87)),
+        title: Text(title,
+            style:
+            TextStyle(fontSize: 14, color: titleColor ?? Colors.black87)),
         subtitle: subtitle != null
-            ? Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)) : null,
+            ? Text(subtitle,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600))
+            : null,
         onTap: onTap,
       );
 
@@ -996,17 +1128,19 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _bottomNav() {
     final items = [
-      {'icon': Icons.view_day_outlined,      'label': 'Today'},
-      {'icon': Icons.view_column_outlined,   'label': 'Timetable'},
-      {'icon': Icons.calendar_month_outlined,'label': 'Calendar'},
-      {'icon': Icons.list_alt_outlined,      'label': 'Subjects'},
-      {'icon': Icons.settings_outlined,      'label': 'Settings'},
+      {'icon': Icons.view_day_outlined, 'label': 'Today'},
+      {'icon': Icons.view_column_outlined, 'label': 'Timetable'},
+      {'icon': Icons.calendar_month_outlined, 'label': 'Calendar'},
+      {'icon': Icons.list_alt_outlined, 'label': 'Subjects'},
+      {'icon': Icons.settings_outlined, 'label': 'Settings'},
     ];
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: Colors.grey.shade200)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6)
+        ],
       ),
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -1019,22 +1153,26 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 if (active)
                   Container(
-                    width: 38, height: 26,
+                    width: 38,
+                    height: 26,
                     decoration: BoxDecoration(
                       color: Colors.teal.shade600,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Icon(items[i]['icon'] as IconData, color: Colors.white, size: 16),
+                    child: Icon(items[i]['icon'] as IconData,
+                        color: Colors.white, size: 16),
                   )
                 else
-                  Icon(items[i]['icon'] as IconData, color: Colors.grey.shade500, size: 22),
+                  Icon(items[i]['icon'] as IconData,
+                      color: Colors.grey.shade500, size: 22),
                 const SizedBox(height: 2),
                 Text(
                   items[i]['label'] as String,
                   style: TextStyle(
                     fontSize: 10,
                     color: active ? Colors.teal.shade700 : Colors.grey.shade500,
-                    fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                    fontWeight:
+                    active ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
               ]),
@@ -1049,232 +1187,327 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   //  DIALOGS
   // ═════════════════════════════════════════════
 
-  void _snack(String msg) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
+  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
 
-  // — Criteria ——
   void _dlgCriteria() {
     int tmp = _criteria;
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Set Attendance Criteria'),
-      content: StatefulBuilder(builder: (ctx, ss) => Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('$tmp%', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-        Slider(value: tmp.toDouble(), min: 0, max: 100, divisions: 20,
-            activeColor: Colors.teal, label: '$tmp%',
-            onChanged: (v) => ss(() => tmp = v.round())),
-      ])),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-        TextButton(onPressed: () {
-          setState(() { _criteria = tmp; for (final s in _subjects) s.criteria = tmp; });
-          _persist(); Navigator.pop(ctx);
-        }, child: const Text('Save')),
-      ],
-    ));
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Set Attendance Criteria'),
+          content: StatefulBuilder(
+              builder: (ctx, ss) =>
+                  Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text('$tmp%',
+                        style: const TextStyle(
+                            fontSize: 28, fontWeight: FontWeight.bold)),
+                    Slider(
+                        value: tmp.toDouble(),
+                        min: 0,
+                        max: 100,
+                        divisions: 20,
+                        activeColor: Colors.teal,
+                        label: '$tmp%',
+                        onChanged: (v) => ss(() => tmp = v.round())),
+                  ])),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            TextButton(
+                onPressed: () {
+                  setState(() {
+                    _criteria = tmp;
+                    for (final s in _subjects) s.criteria = tmp;
+                  });
+                  _persist();
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Save')),
+          ],
+        ));
   }
 
-  // — Theme ——
-  // void _dlgTheme() {
-  //   showDialog(context: context, builder: (ctx) => SimpleDialog(
-  //     title: const Text('Set Theme'),
-  //     children: ['System Default','Light','Dark'].map((opt) => RadioListTile<String>(
-  //       value: opt, groupValue: _theme, title: Text(opt),
-  //       onChanged: (v) {
-  //         if (v != null) { setState(() => _theme = v); _persist(); _snack('Theme set to $v'); }
-  //         Navigator.pop(ctx);
-  //       },
-  //     )).toList(),
-  //   ));
-  // }
-
-  // — Backup/Restore ——
   void _dlgBackupRestore() {
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Backup / Restore'),
-      content: const Text('Backup saves your current data locally.\nRestore reloads the last saved state.'),
-      actions: [
-        TextButton(onPressed: () { _persist(); Navigator.pop(ctx); _snack('Backup saved!'); },
-            child: const Text('Backup')),
-        TextButton(onPressed: () async { Navigator.pop(ctx); await _load(); _snack('Data restored.'); },
-            child: const Text('Restore')),
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-      ],
-    ));
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Backup / Restore'),
+          content: const Text(
+              'Backup saves your current data locally.\nRestore reloads the last saved state.'),
+          actions: [
+            TextButton(
+                onPressed: () {
+                  _persist();
+                  Navigator.pop(ctx);
+                  _snack('Backup saved!');
+                },
+                child: const Text('Backup')),
+            TextButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await _load();
+                  _snack('Data restored.');
+                },
+                child: const Text('Restore')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+          ],
+        ));
   }
 
-  // — Export CSV ——
   void _exportCsv() {
     final sb = StringBuffer('Subject,Attended,Missed,Off,Total,Percentage\n');
     for (final s in _subjects) {
-      sb.writeln('${s.name},${s.attended},${s.missed},${s.off},${s.total},${s.percentage.toStringAsFixed(2)}%');
+      sb.writeln(
+          '${s.name},${s.attended},${s.missed},${s.off},${s.total},${s.percentage.toStringAsFixed(2)}%');
     }
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('CSV Export Preview'),
-      content: SingleChildScrollView(
-          child: SelectableText(sb.toString(),
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
-    ));
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('CSV Export Preview'),
+          content: SingleChildScrollView(
+              child: SelectableText(sb.toString(),
+                  style: const TextStyle(
+                      fontFamily: 'monospace', fontSize: 12))),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'))
+          ],
+        ));
   }
 
-  // — Reset ——
   void _dlgReset() {
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Reset All Attendance'),
-      content: const Text(
-          'This will permanently delete all attendance records and reset every subject to 0.\n\nThis cannot be undone.'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-        TextButton(
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
-          onPressed: () async {
-            await _Store.clear();
-            setState(() {
-              for (final s in _subjects) { s.attended = 0; s.missed = 0; s.off = 0; }
-              _dayLogs.clear();
-            });
-            await _persist();
-            if (mounted) Navigator.pop(ctx);
-            _snack('All attendance data has been reset.');
-          },
-          child: const Text('Reset Everything'),
-        ),
-      ],
-    ));
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Reset All Attendance'),
+          content: const Text(
+              'This will permanently delete all attendance records and reset every subject to 0.\n\nThis cannot be undone.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () async {
+                await _Store.clear();
+                setState(() {
+                  for (final s in _subjects) {
+                    s.attended = 0;
+                    s.missed = 0;
+                    s.off = 0;
+                  }
+                  _dayLogs.clear();
+                });
+                await _persist();
+                if (mounted) Navigator.pop(ctx);
+                _snack('All attendance data has been reset.');
+              },
+              child: const Text('Reset Everything'),
+            ),
+          ],
+        ));
   }
 
-  // — Contact ——
-  void _dlgContact() {
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Contact Us'),
-      content: const Column(mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Suggestions, bugs, or questions?'),
-            SizedBox(height: 10),
-            Text('📧  support@collegeapp.dev', style: TextStyle(fontWeight: FontWeight.w500)),
-          ]),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
-    ));
-  }
-
-  // — App info ——
-  void _dlgAppInfo() => showAboutDialog(
-    context: context,
-    applicationName: 'Attendance Tracker',
-    applicationVersion: '1.0.0',
-    applicationLegalese: '© 2026 College App',
-    children: const [
-      SizedBox(height: 10),
-      Text('Track lecture attendance and never fall below your required percentage.'),
-    ],
-  );
-
-  // — Add Subject ——
   void _dlgAddSubject() {
     final ctrl = TextEditingController();
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Add Subject'),
-      content: TextField(
-        controller: ctrl, autofocus: true,
-        decoration: const InputDecoration(hintText: 'Subject name (e.g. MATH)'),
-        textCapitalization: TextCapitalization.characters,
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-        TextButton(onPressed: () {
-          final n = ctrl.text.trim().toUpperCase();
-          if (n.isNotEmpty && !_subjects.any((s) => s.name == n)) {
-            setState(() => _subjects.add(Subject(name: n, criteria: _criteria)));
-            _persist();
-          }
-          Navigator.pop(ctx);
-        }, child: const Text('Add')),
-      ],
-    ));
-  }
-
-  // — Subjects menu ——
-  void _sheetSubjectsMenu() {
-    showModalBottomSheet(context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
-      builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        ListTile(leading: const Icon(Icons.add), title: const Text('Add Subject'),
-            onTap: () { Navigator.pop(ctx); _dlgAddSubject(); }),
-        ListTile(
-          leading: Icon(Icons.restart_alt, color: Colors.red.shade400),
-          title: Text('Reset All Attendance', style: TextStyle(color: Colors.red.shade400)),
-          onTap: () { Navigator.pop(ctx); _dlgReset(); },
-        ),
-      ])),
-    );
-  }
-
-  // — Subject detail ——
-  void _sheetSubjectDetail(Subject sub) {
-    showModalBottomSheet(context: context, isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (ctx) => SafeArea(child: StatefulBuilder(builder: (ctx, ss) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(sub.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          const SizedBox(height: 4),
-          Text(sub.statusMessage, style: TextStyle(
-              color: sub.percentage >= sub.criteria ? Colors.green : Colors.red, fontSize: 13)),
-          const SizedBox(height: 16),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-            _editStat('Att',  sub.attended, Colors.green,
-                    () { ss(()=>sub.attended++);           setState((){}); _persist(); },
-                    () { if(sub.attended>0) ss(()=>sub.attended--); setState((){}); _persist(); }),
-            _editStat('Miss', sub.missed,   Colors.red,
-                    () { ss(()=>sub.missed++);             setState((){}); _persist(); },
-                    () { if(sub.missed>0) ss(()=>sub.missed--); setState((){}); _persist(); }),
-            _editStat('Off',  sub.off,      Colors.orange,
-                    () { ss(()=>sub.off++);                setState((){}); _persist(); },
-                    () { if(sub.off>0) ss(()=>sub.off--);       setState((){}); _persist(); }),
-          ]),
-          const SizedBox(height: 12),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Add Subject'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration:
+            const InputDecoration(hintText: 'Subject name (e.g. MATH)'),
+            textCapitalization: TextCapitalization.characters,
+          ),
+          actions: [
             TextButton(
-              onPressed: () => showDialog(context: ctx, builder: (c) => AlertDialog(
-                title: Text('Delete ${sub.name}?'),
-                content: const Text('Removes the subject and all its data.'),
-                actions: [
-                  TextButton(onPressed: ()=>Navigator.pop(c), child: const Text('Cancel')),
-                  TextButton(
-                    style: TextButton.styleFrom(foregroundColor: Colors.red),
-                    onPressed: () {
-                      setState(()=>_subjects.remove(sub)); _persist();
-                      Navigator.pop(c); Navigator.pop(ctx);
-                    },
-                    child: const Text('Delete'),
-                  ),
-                ],
-              )),
-              child: const Text('Delete', style: TextStyle(color: Colors.red)),
-            ),
-            TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('Done')),
-          ]),
-        ]),
-      ))),
-    );
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            TextButton(
+                onPressed: () {
+                  final n = ctrl.text.trim().toUpperCase();
+                  if (n.isNotEmpty && !_subjects.any((s) => s.name == n)) {
+                    setState(() => _subjects
+                        .add(Subject(name: n, criteria: _criteria)));
+                    _persist();
+                  }
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Add')),
+          ],
+        ));
   }
 
-  Widget _editStat(String label, int value, Color color, VoidCallback inc, VoidCallback dec) =>
+  void _sheetSubjectsMenu() {
+    showModalBottomSheet(
+        context: context,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
+        builder: (ctx) => SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ListTile(
+                  leading: const Icon(Icons.add),
+                  title: const Text('Add Subject'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _dlgAddSubject();
+                  }),
+              ListTile(
+                leading: Icon(Icons.restart_alt, color: Colors.red.shade400),
+                title: Text('Reset All Attendance',
+                    style: TextStyle(color: Colors.red.shade400)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _dlgReset();
+                },
+              ),
+            ])));
+  }
+
+  void _sheetSubjectDetail(Subject sub) {
+    showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+        builder: (ctx) => SafeArea(
+            child: StatefulBuilder(
+                builder: (ctx, ss) => Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text(sub.name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 18)),
+                    const SizedBox(height: 4),
+                    Text(sub.statusMessage,
+                        style: TextStyle(
+                            color: sub.percentage >= sub.criteria
+                                ? Colors.green
+                                : Colors.red,
+                            fontSize: 13)),
+                    const SizedBox(height: 16),
+                    Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _editStat(
+                              'Att',
+                              sub.attended,
+                              Colors.green,
+                                  () {
+                                ss(() => sub.attended++);
+                                setState(() {});
+                                _persist();
+                              },
+                                  () {
+                                if (sub.attended > 0)
+                                  ss(() => sub.attended--);
+                                setState(() {});
+                                _persist();
+                              }),
+                          _editStat(
+                              'Miss',
+                              sub.missed,
+                              Colors.red,
+                                  () {
+                                ss(() => sub.missed++);
+                                setState(() {});
+                                _persist();
+                              },
+                                  () {
+                                if (sub.missed > 0) ss(() => sub.missed--);
+                                setState(() {});
+                                _persist();
+                              }),
+                          _editStat(
+                              'Off',
+                              sub.off,
+                              Colors.orange,
+                                  () {
+                                ss(() => sub.off++);
+                                setState(() {});
+                                _persist();
+                              },
+                                  () {
+                                if (sub.off > 0) ss(() => sub.off--);
+                                setState(() {});
+                                _persist();
+                              }),
+                        ]),
+                    const SizedBox(height: 12),
+                    Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          TextButton(
+                            onPressed: () => showDialog(
+                                context: ctx,
+                                builder: (c) => AlertDialog(
+                                  title: Text('Delete ${sub.name}?'),
+                                  content: const Text(
+                                      'Removes the subject and all its data.'),
+                                  actions: [
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(c),
+                                        child: const Text('Cancel')),
+                                    TextButton(
+                                      style: TextButton.styleFrom(
+                                          foregroundColor: Colors.red),
+                                      onPressed: () {
+                                        setState(() =>
+                                            _subjects.remove(sub));
+                                        _persist();
+                                        Navigator.pop(c);
+                                        Navigator.pop(ctx);
+                                      },
+                                      child: const Text('Delete'),
+                                    ),
+                                  ],
+                                )),
+                            child: const Text('Delete',
+                                style: TextStyle(color: Colors.red)),
+                          ),
+                          TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text('Done')),
+                        ]),
+                  ]),
+                ))));
+  }
+
+  Widget _editStat(String label, int value, Color color, VoidCallback inc,
+      VoidCallback dec) =>
       Column(children: [
-        Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
+        Text(label,
+            style: TextStyle(
+                color: color, fontWeight: FontWeight.bold, fontSize: 13)),
         const SizedBox(height: 4),
         Row(children: [
-          IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: dec, iconSize: 20,
+          IconButton(
+              icon: const Icon(Icons.remove_circle_outline),
+              onPressed: dec,
+              iconSize: 20,
               color: Colors.grey.shade600),
-          Text('$value', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: inc, iconSize: 20,
+          Text('$value',
+              style:
+              const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              onPressed: inc,
+              iconSize: 20,
               color: Colors.grey.shade600),
         ]),
       ]);
 }
 
 // ═════════════════════════════════════════════
-//  TIMETABLE EDIT SHEET  (separate StatefulWidget)
+//  TIMETABLE EDIT SHEET
 // ═════════════════════════════════════════════
 
 class _TimetableEditSheet extends StatefulWidget {
@@ -1294,15 +1527,25 @@ class _TimetableEditSheet extends StatefulWidget {
 
 class _TimetableEditSheetState extends State<_TimetableEditSheet> {
   late Map<int, List<String>> _tt;
-  int _selectedDay = 1; // 1=Mon..7=Sun
+  int _selectedDay = 1;
 
-  static const _dayNames = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  static const _dayShort = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  // Controllers keyed by a unique ID per slot so they survive reorders/deletions
+  // Key = unique slot id (increments), Value = TextEditingController
+  final Map<int, TextEditingController> _controllers = {};
+  // Parallel list of unique IDs for the current day's slots
+  final List<int> _slotIds = [];
+  int _nextId = 0;
+
+  static const _dayNames = [
+    '', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
+  ];
+  static const _dayShort = [
+    '', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
+  ];
 
   @override
   void initState() {
     super.initState();
-    // Normalise to current day of week
     _selectedDay = DateTime.now().weekday;
     _tt = Map<int, List<String>>.fromEntries(
       List.generate(7, (i) {
@@ -1310,21 +1553,100 @@ class _TimetableEditSheetState extends State<_TimetableEditSheet> {
         return MapEntry(d, List<String>.from(widget.timetable[d] ?? []));
       }),
     );
+    _rebuildControllers();
   }
 
-  List<String> get _slots => _tt[_selectedDay]!;
+  @override
+  void dispose() {
+    for (final c in _controllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  // ── Sync _slotIds + _controllers whenever day or data changes ──────────────
+
+  void _rebuildControllers() {
+    // Dispose controllers that are no longer needed
+    for (final id in List<int>.from(_slotIds)) {
+      _controllers[id]?.dispose();
+      _controllers.remove(id);
+    }
+    _slotIds.clear();
+
+    final slots = _tt[_selectedDay] ?? [];
+    for (final name in slots) {
+      final id = _nextId++;
+      _slotIds.add(id);
+      _controllers[id] = TextEditingController(text: name);
+    }
+  }
+
+  // ── Flush controller text → _tt before any structural change ──────────────
+
+  void _flushToData() {
+    final slots = <String>[];
+    for (final id in _slotIds) {
+      slots.add(_controllers[id]?.text.trim().toUpperCase() ?? '');
+    }
+    _tt[_selectedDay] = slots;
+  }
+
+  // ── Mutations ──────────────────────────────────────────────────────────────
+
+  void _switchDay(int d) {
+    _flushToData();
+    setState(() {
+      _selectedDay = d;
+      _rebuildControllers();
+    });
+  }
 
   void _addSlot() {
-    setState(() => _slots.add(''));
+    _flushToData();
+    setState(() {
+      _tt[_selectedDay]!.add('');
+      final id = _nextId++;
+      _slotIds.add(id);
+      _controllers[id] = TextEditingController(text: '');
+    });
   }
 
-  void _removeSlot(int idx) {
-    setState(() => _slots.removeAt(idx));
+  void _removeSlot(int listIndex) {
+    _flushToData();
+    setState(() {
+      final id = _slotIds[listIndex];
+      _controllers[id]?.dispose();
+      _controllers.remove(id);
+      _slotIds.removeAt(listIndex);
+      _tt[_selectedDay]!.removeAt(listIndex);
+    });
   }
 
-  void _setSlot(int idx, String val) {
-    setState(() => _slots[idx] = val.toUpperCase().trim());
+  void _onReorder(int oldIndex, int newIndex) {
+    _flushToData();
+    setState(() {
+      if (newIndex > oldIndex) newIndex--;
+      // Reorder the ID list
+      final id = _slotIds.removeAt(oldIndex);
+      _slotIds.insert(newIndex, id);
+      // Reorder the data list to match
+      final name = _tt[_selectedDay]!.removeAt(oldIndex);
+      _tt[_selectedDay]!.insert(newIndex, name);
+    });
   }
+
+  void _appendSubject(String name) {
+    _flushToData();
+    setState(() {
+      _tt[_selectedDay]!.add(name);
+      final id = _nextId++;
+      _slotIds.add(id);
+      _controllers[id] = TextEditingController(text: name);
+    });
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -1335,16 +1657,17 @@ class _TimetableEditSheetState extends State<_TimetableEditSheet> {
       maxChildSize: 0.95,
       builder: (ctx, scroll) => Column(
         children: [
-          // ── Handle
+          // Handle
           Container(
             margin: const EdgeInsets.only(top: 10, bottom: 4),
-            width: 36, height: 4,
+            width: 36,
+            height: 4,
             decoration: BoxDecoration(
               color: Colors.grey.shade300,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          // ── Title + Save
+          // Title + Save
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(children: [
@@ -1354,12 +1677,16 @@ class _TimetableEditSheetState extends State<_TimetableEditSheet> {
               TextButton.icon(
                 icon: const Icon(Icons.check, size: 18),
                 label: const Text('Save'),
-                style: TextButton.styleFrom(foregroundColor: Colors.teal.shade700),
-                onPressed: () => widget.onSave(_tt),
+                style: TextButton.styleFrom(
+                    foregroundColor: Colors.teal.shade700),
+                onPressed: () {
+                  _flushToData();
+                  widget.onSave(_tt);
+                },
               ),
             ]),
           ),
-          // ── Day selector
+          // Day selector
           SizedBox(
             height: 38,
             child: ListView.builder(
@@ -1370,21 +1697,28 @@ class _TimetableEditSheetState extends State<_TimetableEditSheet> {
                 final d = i + 1;
                 final active = _selectedDay == d;
                 return GestureDetector(
-                  onTap: () => setState(() => _selectedDay = d),
+                  onTap: () => _switchDay(d),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     margin: const EdgeInsets.symmetric(horizontal: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(
-                      color: active ? Colors.teal.shade700 : Colors.grey.shade100,
+                      color: active
+                          ? Colors.teal.shade700
+                          : Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       _dayShort[d],
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight: active ? FontWeight.bold : FontWeight.normal,
-                        color: active ? Colors.white : Colors.grey.shade700,
+                        fontWeight: active
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color: active
+                            ? Colors.white
+                            : Colors.grey.shade700,
                       ),
                     ),
                   ),
@@ -1394,64 +1728,64 @@ class _TimetableEditSheetState extends State<_TimetableEditSheet> {
           ),
           const SizedBox(height: 4),
           Divider(color: Colors.grey.shade200),
-          // ── Slot list
-          Expanded(
-            child: ListView(
-              controller: scroll,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              children: [
-                Text(
-                  _dayNames[_selectedDay],
+          // Hint row
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(children: [
+              Text(_dayNames[_selectedDay],
                   style: TextStyle(
-                    color: Colors.teal.shade700,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
+                      color: Colors.teal.shade700,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13)),
+              const Spacer(),
+              Icon(Icons.drag_handle, size: 14, color: Colors.grey.shade400),
+              const SizedBox(width: 4),
+              Text('Hold & drag to reorder',
+                  style:
+                  TextStyle(fontSize: 11, color: Colors.grey.shade400)),
+            ]),
+          ),
+          // Slot list (ReorderableListView + scrollable)
+          Expanded(
+            child: _slotIds.isEmpty
+                ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('No classes — tap + to add',
+                      style: TextStyle(
+                          color: Colors.grey.shade400, fontSize: 13)),
+                  const SizedBox(height: 16),
+                  _addButton(),
+                  const SizedBox(height: 16),
+                  _quickFillSection(),
+                ],
+              ),
+            )
+                : ReorderableListView.builder(
+              scrollController: scroll,
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+              onReorder: _onReorder,
+              // Disable default drag handle so we provide our own
+              buildDefaultDragHandles: false,
+              itemCount: _slotIds.length,
+              itemBuilder: (ctx, idx) {
+                final id = _slotIds[idx];
+                final ctrl = _controllers[id]!;
+                return _slotRow(key: ValueKey(id), idx: idx, id: id, ctrl: ctrl);
+              },
+              footer: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _addButton(),
+                    const SizedBox(height: 20),
+                    _quickFillSection(),
+                    const SizedBox(height: 24),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                if (_slots.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 24),
-                    child: Center(
-                      child: Text('No classes — tap + to add',
-                          style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
-                    ),
-                  ),
-                ...List.generate(_slots.length, (idx) => _slotRow(idx)),
-                const SizedBox(height: 12),
-                // Add slot button
-                OutlinedButton.icon(
-                  onPressed: _addSlot,
-                  icon: const Icon(Icons.add, size: 18),
-                  label: Text('Add slot ${_slots.length + 1}'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.teal.shade700,
-                    side: BorderSide(color: Colors.teal.shade300),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                // Quick-fill all subjects for this day
-                Text('Quick fill from subjects',
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6, runSpacing: 6,
-                  children: widget.subjectNames.map((name) => GestureDetector(
-                    onTap: () => setState(() => _slots.add(name)),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.blueGrey.shade50,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.blueGrey.shade200),
-                      ),
-                      child: Text(name,
-                          style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade700)),
-                    ),
-                  )).toList(),
-                ),
-              ],
+              ),
             ),
           ),
         ],
@@ -1459,54 +1793,131 @@ class _TimetableEditSheetState extends State<_TimetableEditSheet> {
     );
   }
 
-  Widget _slotRow(int idx) {
-    final ctrl = TextEditingController(text: _slots[idx]);
-    ctrl.selection = TextSelection.fromPosition(TextPosition(offset: ctrl.text.length));
+  Widget _addButton() => OutlinedButton.icon(
+    onPressed: _addSlot,
+    icon: const Icon(Icons.add, size: 18),
+    label: Text('Add slot ${_slotIds.length + 1}'),
+    style: OutlinedButton.styleFrom(
+      foregroundColor: Colors.teal.shade700,
+      side: BorderSide(color: Colors.teal.shade300),
+      shape:
+      RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    ),
+  );
+
+  Widget _quickFillSection() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text('Quick fill from subjects',
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: widget.subjectNames
+            .map((name) => GestureDetector(
+          onTap: () => _appendSubject(name),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey.shade50,
+              borderRadius: BorderRadius.circular(6),
+              border:
+              Border.all(color: Colors.blueGrey.shade200),
+            ),
+            child: Text(name,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.blueGrey.shade700)),
+          ),
+        ))
+            .toList(),
+      ),
+    ],
+  );
+
+  Widget _slotRow({
+    required Key key,
+    required int idx,
+    required int id,
+    required TextEditingController ctrl,
+  }) {
     return Container(
+      key: key,
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 3)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 3)
+        ],
       ),
       child: Row(children: [
         // Slot number badge
         Container(
           width: 36,
-          height: 48,
+          height: 52,
           decoration: BoxDecoration(
             color: Colors.teal.shade50,
             borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(8), bottomLeft: Radius.circular(8)),
+              topLeft: Radius.circular(8),
+              bottomLeft: Radius.circular(8),
+            ),
           ),
           child: Center(
             child: Text('${idx + 1}',
-                style: TextStyle(color: Colors.teal.shade700, fontWeight: FontWeight.bold, fontSize: 13)),
+                style: TextStyle(
+                    color: Colors.teal.shade700,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13)),
           ),
         ),
-        // Text field
+        // Text field with autocomplete
         Expanded(
           child: Autocomplete<String>(
-            initialValue: TextEditingValue(text: _slots[idx]),
+            initialValue: TextEditingValue(text: ctrl.text),
             optionsBuilder: (tv) {
               if (tv.text.isEmpty) return widget.subjectNames;
-              return widget.subjectNames
-                  .where((n) => n.toLowerCase().contains(tv.text.toLowerCase()));
+              return widget.subjectNames.where(
+                      (n) => n.toLowerCase().contains(tv.text.toLowerCase()));
             },
-            onSelected: (val) => _setSlot(idx, val),
-            fieldViewBuilder: (ctx, ctrl2, fn, onSub) => TextField(
-              controller: ctrl2,
-              focusNode: fn,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                hintText: 'Subject name',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12),
-              ),
-              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
-              onChanged: (v) => _setSlot(idx, v),
-            ),
+            onSelected: (val) {
+              ctrl.text = val.toUpperCase();
+              _flushToData();
+            },
+            fieldViewBuilder: (ctx, autoCtrl, fn, onSub) {
+              // Sync the autocomplete's internal controller with our keyed one
+              // by keeping the autoCtrl in sync on focus
+              autoCtrl.text = ctrl.text;
+              autoCtrl.selection = TextSelection.fromPosition(
+                  TextPosition(offset: autoCtrl.text.length));
+              return TextField(
+                controller: autoCtrl,
+                focusNode: fn,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Subject name',
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                ),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w500, fontSize: 14),
+                onChanged: (v) {
+                  ctrl.text = v.toUpperCase();
+                },
+              );
+            },
+          ),
+        ),
+        // Drag handle
+        ReorderableDragStartListener(
+          index: idx,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Icon(Icons.drag_handle,
+                color: Colors.grey.shade400, size: 20),
           ),
         ),
         // Delete
