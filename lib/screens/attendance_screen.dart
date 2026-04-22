@@ -8,7 +8,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'timetable_screen.dart';
 
 // ─────────────────────────────────────────────
 //  MODELS
@@ -107,22 +106,27 @@ class DayLog {
 // ─────────────────────────────────────────────
 
 class _Store {
-  static const _kSubjects = 'att_subjects';
-  static const _kDayLogs  = 'att_daylogs';
-  static const _kCriteria = 'att_criteria';
-  static const _kTheme    = 'att_theme';
+  static const _kSubjects   = 'att_subjects';
+  static const _kDayLogs    = 'att_daylogs';
+  static const _kCriteria   = 'att_criteria';
+  static const _kTheme      = 'att_theme';
+  static const _kTimetable  = 'att_timetable';
 
   static Future<void> save({
     required List<Subject> subjects,
     required Map<String, DayLog> dayLogs,
     required int criteria,
     required String theme,
+    required Map<int, List<String>> timetable,
   }) async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_kSubjects, jsonEncode(subjects.map((s) => s.toJson()).toList()));
     await p.setString(_kDayLogs, jsonEncode(dayLogs.map((k, v) => MapEntry(k, v.toJson()))));
     await p.setInt(_kCriteria, criteria);
     await p.setString(_kTheme, theme);
+    // Store timetable as Map<String, List<String>>
+    final ttEncoded = timetable.map((k, v) => MapEntry(k.toString(), v));
+    await p.setString(_kTimetable, jsonEncode(ttEncoded));
   }
 
   static Future<Map<String, dynamic>> load() async {
@@ -143,11 +147,21 @@ class _Store {
           .map((k, v) => MapEntry(k, DayLog.fromJson(v as Map<String, dynamic>)));
     }
 
+    // Load timetable
+    Map<int, List<String>> timetable = _defaultTimetable();
+    final tr = p.getString(_kTimetable);
+    if (tr != null) {
+      final decoded = jsonDecode(tr) as Map<String, dynamic>;
+      timetable = decoded.map((k, v) =>
+          MapEntry(int.parse(k), List<String>.from(v as List)));
+    }
+
     return {
       'subjects': subjects,
       'dayLogs': dayLogs,
       'criteria': p.getInt(_kCriteria) ?? 75,
       'theme': p.getString(_kTheme) ?? 'System Default',
+      'timetable': timetable,
     };
   }
 
@@ -157,7 +171,18 @@ class _Store {
     await p.remove(_kDayLogs);
     await p.remove(_kCriteria);
     await p.remove(_kTheme);
+    // Note: timetable is NOT cleared on reset — user keeps their schedule
   }
+
+  static Map<int, List<String>> _defaultTimetable() => {
+    1: ['PSDL', 'Devops', 'DE',   'ICS',  'CC'],
+    2: ['EBI',  'CC',     'FSD',  'ICS',  'FSDL'],
+    3: ['DEL',  'Devops', 'ICS',  'CC',   'DE'],
+    4: ['FSD',  'EBI',    'CCL',  '',     ''],
+    5: ['Devops','DE',    'PSDL', 'FSD',  ''],
+    6: [],
+    7: [],
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -182,17 +207,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   DateTime _calMonth     = DateTime.now();
   DateTime _selectedDate = DateTime.now();
 
-  // Default timetable (weekday 1=Mon .. 7=Sun)
-  final Map<int, List<String>> _timetable = {
-    1: ['PSDL', 'Devops', 'DE',  'ICS', 'CC'],
-    2: ['EBI',  'CC',     'FSD', 'ICS', 'FSDL'],
-    3: ['DEL',  'Devops', 'ICS', 'CC',  'DE'],
-    4: ['FSD',  'EBI',    'CCL', '',    ''],
-    5: ['Devops','DE',   'PSDL','FSD',  ''],
-    6: [], 7: [],
-  };
+  // Timetable: weekday 1=Mon .. 7=Sun
+  Map<int, List<String>> _timetable = {};
 
-  // Used only when no saved data exists (first launch → zero attendance)
+  // Default subject names (used only on first launch)
   static const _defaultNames = [
     'DEL','Devops','ICS','CC','CCL','DE','EBI','FSD','PSDL','FSDL'
   ];
@@ -208,9 +226,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Future<void> _load() async {
     final data = await _Store.load();
     setState(() {
-      _criteria = data['criteria'] as int;
-      _theme    = data['theme']    as String;
-      _dayLogs  = data['dayLogs']  as Map<String, DayLog>;
+      _criteria  = data['criteria']  as int;
+      _theme     = data['theme']     as String;
+      _dayLogs   = data['dayLogs']   as Map<String, DayLog>;
+      _timetable = data['timetable'] as Map<int, List<String>>;
       final saved = data['subjects'] as List<Subject>;
       _subjects = saved.isNotEmpty
           ? saved
@@ -220,10 +239,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _persist() => _Store.save(
-      subjects: _subjects,
-      dayLogs:  _dayLogs,
-      criteria: _criteria,
-      theme:    _theme);
+      subjects:  _subjects,
+      dayLogs:   _dayLogs,
+      criteria:  _criteria,
+      theme:     _theme,
+      timetable: _timetable);
 
   // ── helpers ──────────────────────────────────
 
@@ -289,8 +309,19 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   String _wd(int w) => const ['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'][w];
+  String _wdShort(int w) => const ['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'][w];
   String _mn(int m) => const ['','January','February','March','April','May','June',
     'July','August','September','October','November','December'][m];
+
+  // Max slots across all days (for grid rows)
+  int get _maxSlots {
+    int max = 0;
+    for (int d = 1; d <= 7; d++) {
+      final slots = (_timetable[d] ?? []).where((s) => s.isNotEmpty).length;
+      if (slots > max) max = slots;
+    }
+    return max < 1 ? 1 : max;
+  }
 
   // ── build ─────────────────────────────────────
 
@@ -332,6 +363,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         title = '${_wd(d.weekday)}, ${d.day} ${_mn(d.month)} ${d.year}';
         actions.add(IconButton(icon: const Icon(Icons.add), onPressed: _dlgAddSubject));
         break;
+      case 1:
+        title = 'Timetable';
+        actions.add(IconButton(
+          icon: const Icon(Icons.edit_outlined),
+          tooltip: 'Edit Timetable',
+          onPressed: _sheetEditTimetable,
+        ));
+        break;
       case 2: title = 'Calendar'; break;
       case 3:
         title = 'Subjects';
@@ -362,6 +401,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Widget _body() {
     switch (_tab) {
       case 0: return _tabToday();
+      case 1: return _tabTimetable();
       case 2: return _tabCalendar();
       case 3: return _tabSubjects();
       case 4: return _tabSettings();
@@ -505,6 +545,192 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           border: Border.all(color: on ? c : Colors.grey.shade300),
         ),
         child: Icon(icon, size: 16, color: on ? Colors.white : Colors.grey.shade400),
+      ),
+    );
+  }
+
+  // ═════════════════════════════════════════════
+  //  TIMETABLE TAB
+  // ═════════════════════════════════════════════
+
+  Widget _tabTimetable() {
+    final today = DateTime.now().weekday; // 1=Mon..7=Sun
+    final days  = [1, 2, 3, 4, 5, 6, 7];
+    final maxRows = _maxSlots;
+
+    return Column(
+      children: [
+        // ─ Day header row
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: days.map((d) {
+              final isToday = d == today;
+              return Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _wdShort(d),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                        color: isToday ? Colors.teal.shade700 : Colors.grey.shade600,
+                      ),
+                    ),
+                    if (isToday)
+                      Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        height: 2,
+                        width: 20,
+                        color: Colors.teal.shade500,
+                      ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const Divider(height: 1),
+        // ─ Grid body
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: days.map((d) {
+                final slots = (_timetable[d] ?? []).where((s) => s.isNotEmpty).toList();
+                final isToday = d == today;
+                return Expanded(
+                  child: Column(
+                    children: List.generate(maxRows, (i) {
+                      final name = i < slots.length ? slots[i] : '';
+                      if (name.isEmpty) {
+                        return Container(
+                          margin: const EdgeInsets.all(2),
+                          height: 72,
+                        );
+                      }
+                      return GestureDetector(
+                        onTap: () {
+                          // Navigate to today tab with this day selected
+                          final now = DateTime.now();
+                          // Find nearest occurrence of weekday d
+                          int diff = d - now.weekday;
+                          final target = now.add(Duration(days: diff));
+                          setState(() {
+                            _selectedDate = DateTime(target.year, target.month, target.day);
+                            _tab = 0;
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.all(2),
+                          height: 72,
+                          decoration: BoxDecoration(
+                            color: isToday
+                                ? Colors.teal.shade700
+                                : Colors.blueGrey.shade700,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Stack(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(6, 6, 4, 4),
+                                child: Text(
+                                  name,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              // Small percentage indicator if subject exists
+                              if (_sub(name) != null)
+                                Positioned(
+                                  bottom: 4, right: 4,
+                                  child: Builder(builder: (_) {
+                                    final s = _sub(name)!;
+                                    final ok = s.percentage >= s.criteria;
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: ok ? Colors.green.shade600 : Colors.red.shade400,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        '${s.percentage.toStringAsFixed(0)}%',
+                                        style: const TextStyle(color: Colors.white, fontSize: 9),
+                                      ),
+                                    );
+                                  }),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        // ─ Legend / hint
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Container(width: 10, height: 10,
+                  decoration: BoxDecoration(color: Colors.teal.shade700, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(width: 4),
+              Text("Today's classes", style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              const SizedBox(width: 16),
+              Container(width: 10, height: 10,
+                  decoration: BoxDecoration(color: Colors.blueGrey.shade700, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(width: 4),
+              Text('Other days', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              const Spacer(),
+              Icon(Icons.edit_outlined, size: 14, color: Colors.grey.shade400),
+              const SizedBox(width: 3),
+              Text('Tap ✏ to edit', style: TextStyle(fontSize: 11, color: Colors.grey.shade400)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  //  EDIT TIMETABLE SHEET
+  // ─────────────────────────────────────────────
+
+  void _sheetEditTimetable() {
+    // Deep copy for editing
+    final editTT = Map<int, List<String>>.fromEntries(
+      List.generate(7, (i) {
+        final d = i + 1;
+        return MapEntry(d, List<String>.from(_timetable[d] ?? []));
+      }),
+    );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => _TimetableEditSheet(
+        timetable: editTT,
+        subjectNames: _subjects.map((s) => s.name).toList(),
+        onSave: (updated) {
+          setState(() => _timetable = updated);
+          _persist();
+          Navigator.pop(ctx);
+          _snack('Timetable saved!');
+        },
       ),
     );
   }
@@ -731,7 +957,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Widget _tabSettings() => ListView(children: [
     _sSection('General'),
     _sTile(icon: Icons.track_changes,      title: 'Set criteria',  subtitle: '$_criteria%',                     onTap: _dlgCriteria),
-    _sTile(icon: Icons.brightness_medium,  title: 'Set theme',     subtitle: '$_theme, using App colors',       onTap: _dlgTheme),
+    //_sTile(icon: Icons.brightness_medium,  title: 'Set theme',     subtitle: '$_theme, using App colors',       onTap: _dlgTheme),
     _sSection('Database'),
     _sTile(icon: Icons.import_export,      title: 'Backup / Restore', subtitle: 'Save or load your attendance data.',         onTap: _dlgBackupRestore),
     _sTile(icon: Icons.description_outlined, title: 'Export data as CSV', subtitle: 'Preview a CSV summary of all subjects.', onTap: _exportCsv),
@@ -740,11 +966,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         subtitle: 'Clears every subject back to 0 and deletes all day logs.',
         onTap: _dlgReset, titleColor: Colors.red.shade600),
     _sSection('App'),
-    _sTile(icon: Icons.workspace_premium, title: 'Upgrade to Premium', onTap: () => _snack('Premium coming soon!')),
-    _sTile(icon: Icons.share,             title: 'Share App',           onTap: () => _snack('Share feature coming soon!')),
-    _sTile(icon: Icons.star_rate,         title: 'Rate on Google Play', onTap: () => _snack('Opening Play Store...')),
-    _sTile(icon: Icons.people_outline,    title: 'Contact us', subtitle: 'Suggestions, bugs, questions', onTap: _dlgContact),
-    _sTile(icon: Icons.info_outline,      title: 'App info',            onTap: _dlgAppInfo),
+   // _sTile(icon: Icons.workspace_premium, title: 'Upgrade to Premium', onTap: () => _snack('Premium coming soon!')),
+  //  _sTile(icon: Icons.share,             title: 'Share App',           onTap: () => _snack('Share feature coming soon!')),
+  //  _sTile(icon: Icons.star_rate,         title: 'Rate on Google Play', onTap: () => _snack('Opening Play Store...')),
+ //   _sTile(icon: Icons.people_outline,    title: 'Contact us', subtitle: 'Suggestions, bugs, questions', onTap: _dlgContact),
+ //   _sTile(icon: Icons.info_outline,      title: 'App info',            onTap: _dlgAppInfo),
     const SizedBox(height: 20),
   ]);
 
@@ -789,14 +1015,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           return Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () {
-                if (i == 1) {
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => TimetableScreen()));
-                } else {
-                  setState(() => _tab = i);
-                }
-              },
+              onTap: () => setState(() => _tab = i),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 if (active)
                   Container(
@@ -855,18 +1074,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   // — Theme ——
-  void _dlgTheme() {
-    showDialog(context: context, builder: (ctx) => SimpleDialog(
-      title: const Text('Set Theme'),
-      children: ['System Default','Light','Dark'].map((opt) => RadioListTile<String>(
-        value: opt, groupValue: _theme, title: Text(opt),
-        onChanged: (v) {
-          if (v != null) { setState(() => _theme = v); _persist(); _snack('Theme set to $v'); }
-          Navigator.pop(ctx);
-        },
-      )).toList(),
-    ));
-  }
+  // void _dlgTheme() {
+  //   showDialog(context: context, builder: (ctx) => SimpleDialog(
+  //     title: const Text('Set Theme'),
+  //     children: ['System Default','Light','Dark'].map((opt) => RadioListTile<String>(
+  //       value: opt, groupValue: _theme, title: Text(opt),
+  //       onChanged: (v) {
+  //         if (v != null) { setState(() => _theme = v); _persist(); _snack('Theme set to $v'); }
+  //         Navigator.pop(ctx);
+  //       },
+  //     )).toList(),
+  //   ));
+  // }
 
   // — Backup/Restore ——
   void _dlgBackupRestore() {
@@ -1052,4 +1271,251 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               color: Colors.grey.shade600),
         ]),
       ]);
+}
+
+// ═════════════════════════════════════════════
+//  TIMETABLE EDIT SHEET  (separate StatefulWidget)
+// ═════════════════════════════════════════════
+
+class _TimetableEditSheet extends StatefulWidget {
+  final Map<int, List<String>> timetable;
+  final List<String> subjectNames;
+  final void Function(Map<int, List<String>>) onSave;
+
+  const _TimetableEditSheet({
+    required this.timetable,
+    required this.subjectNames,
+    required this.onSave,
+  });
+
+  @override
+  State<_TimetableEditSheet> createState() => _TimetableEditSheetState();
+}
+
+class _TimetableEditSheetState extends State<_TimetableEditSheet> {
+  late Map<int, List<String>> _tt;
+  int _selectedDay = 1; // 1=Mon..7=Sun
+
+  static const _dayNames = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  static const _dayShort = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  @override
+  void initState() {
+    super.initState();
+    // Normalise to current day of week
+    _selectedDay = DateTime.now().weekday;
+    _tt = Map<int, List<String>>.fromEntries(
+      List.generate(7, (i) {
+        final d = i + 1;
+        return MapEntry(d, List<String>.from(widget.timetable[d] ?? []));
+      }),
+    );
+  }
+
+  List<String> get _slots => _tt[_selectedDay]!;
+
+  void _addSlot() {
+    setState(() => _slots.add(''));
+  }
+
+  void _removeSlot(int idx) {
+    setState(() => _slots.removeAt(idx));
+  }
+
+  void _setSlot(int idx, String val) {
+    setState(() => _slots[idx] = val.toUpperCase().trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.92,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (ctx, scroll) => Column(
+        children: [
+          // ── Handle
+          Container(
+            margin: const EdgeInsets.only(top: 10, bottom: 4),
+            width: 36, height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // ── Title + Save
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(children: [
+              const Text('Edit Timetable',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const Spacer(),
+              TextButton.icon(
+                icon: const Icon(Icons.check, size: 18),
+                label: const Text('Save'),
+                style: TextButton.styleFrom(foregroundColor: Colors.teal.shade700),
+                onPressed: () => widget.onSave(_tt),
+              ),
+            ]),
+          ),
+          // ── Day selector
+          SizedBox(
+            height: 38,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: 7,
+              itemBuilder: (ctx, i) {
+                final d = i + 1;
+                final active = _selectedDay == d;
+                return GestureDetector(
+                  onTap: () => setState(() => _selectedDay = d),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: active ? Colors.teal.shade700 : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _dayShort[d],
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                        color: active ? Colors.white : Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 4),
+          Divider(color: Colors.grey.shade200),
+          // ── Slot list
+          Expanded(
+            child: ListView(
+              controller: scroll,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              children: [
+                Text(
+                  _dayNames[_selectedDay],
+                  style: TextStyle(
+                    color: Colors.teal.shade700,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (_slots.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text('No classes — tap + to add',
+                          style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+                    ),
+                  ),
+                ...List.generate(_slots.length, (idx) => _slotRow(idx)),
+                const SizedBox(height: 12),
+                // Add slot button
+                OutlinedButton.icon(
+                  onPressed: _addSlot,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: Text('Add slot ${_slots.length + 1}'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.teal.shade700,
+                    side: BorderSide(color: Colors.teal.shade300),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Quick-fill all subjects for this day
+                Text('Quick fill from subjects',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6, runSpacing: 6,
+                  children: widget.subjectNames.map((name) => GestureDetector(
+                    onTap: () => setState(() => _slots.add(name)),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.blueGrey.shade200),
+                      ),
+                      child: Text(name,
+                          style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade700)),
+                    ),
+                  )).toList(),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _slotRow(int idx) {
+    final ctrl = TextEditingController(text: _slots[idx]);
+    ctrl.selection = TextSelection.fromPosition(TextPosition(offset: ctrl.text.length));
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 3)],
+      ),
+      child: Row(children: [
+        // Slot number badge
+        Container(
+          width: 36,
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.teal.shade50,
+            borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(8), bottomLeft: Radius.circular(8)),
+          ),
+          child: Center(
+            child: Text('${idx + 1}',
+                style: TextStyle(color: Colors.teal.shade700, fontWeight: FontWeight.bold, fontSize: 13)),
+          ),
+        ),
+        // Text field
+        Expanded(
+          child: Autocomplete<String>(
+            initialValue: TextEditingValue(text: _slots[idx]),
+            optionsBuilder: (tv) {
+              if (tv.text.isEmpty) return widget.subjectNames;
+              return widget.subjectNames
+                  .where((n) => n.toLowerCase().contains(tv.text.toLowerCase()));
+            },
+            onSelected: (val) => _setSlot(idx, val),
+            fieldViewBuilder: (ctx, ctrl2, fn, onSub) => TextField(
+              controller: ctrl2,
+              focusNode: fn,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                hintText: 'Subject name',
+                contentPadding: EdgeInsets.symmetric(horizontal: 12),
+              ),
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              onChanged: (v) => _setSlot(idx, v),
+            ),
+          ),
+        ),
+        // Delete
+        IconButton(
+          icon: Icon(Icons.close, size: 18, color: Colors.red.shade300),
+          onPressed: () => _removeSlot(idx),
+          tooltip: 'Remove slot',
+        ),
+      ]),
+    );
+  }
 }
