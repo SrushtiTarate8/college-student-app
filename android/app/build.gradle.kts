@@ -5,23 +5,23 @@ plugins {
 }
 
 android {
-    namespace = "com.example.college_app"
+    namespace = "com.example.college_student_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-        isCoreLibraryDesugaringEnabled = true
+        isCoreLibraryDesugaringEnabled = true   // ✅ FIX (Kotlin DSL syntax)
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+        jvmTarget = "1.8"
     }
 
     defaultConfig {
-        applicationId = "com.example.college_app"
-        minSdk = flutter.minSdkVersion   // 👈 IMPORTANT: set minimum 21 for notifications
+        applicationId = "com.example.college_student_app"
+        minSdk = flutter.minSdkVersion   // ✅ IMPORTANT (must be 21+ for notifications)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -34,10 +34,11 @@ android {
     }
 }
 
-flutter {
-    source = "../.."
+dependencies {
+    // ✅ REQUIRED for flutter_local_notifications
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
 
-dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+flutter {
+    source = "../.."
 }

@@ -13,24 +13,21 @@ final FlutterLocalNotificationsPlugin _notifPlugin =
 FlutterLocalNotificationsPlugin();
 
 Future<void> initNotifications() async {
-  tzdata.initializeTimeZones(); // ✅ ENABLE this (important for scheduling)
+  //tzdata.initializeTimeZones();
 
   const androidSettings =
   AndroidInitializationSettings('@mipmap/ic_launcher');
-
   const iosSettings = DarwinInitializationSettings(
     requestAlertPermission: true,
     requestBadgePermission: true,
     requestSoundPermission: true,
   );
-
   const AndroidNotificationChannel channel = AndroidNotificationChannel(
     'planner_channel',
     'Study Planner',
     description: 'Study task reminders',
     importance: Importance.max,
   );
-
   const initSettings =
   InitializationSettings(android: androidSettings, iOS: iosSettings);
 
@@ -39,14 +36,17 @@ Future<void> initNotifications() async {
     onDidReceiveNotificationResponse: (details) {},
   );
 
-  // ✅ Only THIS permission (safe)
+  // Request Android 13+ permission
   await _notifPlugin
       .resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>()
       ?.requestNotificationsPermission();
 
-  // ❌ REMOVE THIS LINE (causing settings screen + white screen)
-  // ?.requestExactAlarmsPermission();
+  // Request exact alarm permission (Android 12+)
+  await _notifPlugin
+      .resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>()
+      ?.requestExactAlarmsPermission();
 
   await _notifPlugin
       .resolvePlatformSpecificImplementation<
@@ -95,7 +95,7 @@ Future<void> scheduleTaskNotification(Task task, DateTime taskDate) async {
     task.note.isNotEmpty ? task.note : 'Time to study!',
     scheduledDate,
     details,
-    androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+    androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     uiLocalNotificationDateInterpretation:
     UILocalNotificationDateInterpretation.absoluteTime,
   );
