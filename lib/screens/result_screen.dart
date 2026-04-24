@@ -1,12 +1,8 @@
 // =============================================================================
 // ResultScreen.dart
 // Complete Result Prediction Module for College App
-//
-// Architecture:
-//   ├── Models         (GradeScale, Subject, Semester)
-//   ├── Calculator     (SGPACalculator, PredictionEngine)
-//   ├── State Mgmt     (ResultPredictionProvider via ChangeNotifier)
-//   └── UI             (ResultScreen + sub-widgets)
+// Theme: Red/Rose accent with full dark/light mode toggle via ThemeProvider
+// =============================================================================
 
 import 'dart:convert';
 import 'dart:math';
@@ -14,18 +10,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'theme_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 1 — MODELS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Represents a single grade band in the grading system.
-/// e.g.  O grade: minMarks=90, maxMarks=100, gradePoints=10
 class GradeScale {
-  final String label;       // "O", "A+", "A", "B+", "B", "C", "F"
-  final double minMarks;    // inclusive lower bound (out of 100)
-  final double maxMarks;    // inclusive upper bound (out of 100)
-  final double gradePoints; // grade point awarded for this band
+  final String label;
+  final double minMarks;
+  final double maxMarks;
+  final double gradePoints;
 
   const GradeScale({
     required this.label,
@@ -34,7 +29,6 @@ class GradeScale {
     required this.gradePoints,
   });
 
-  /// Returns true when [totalMarks] falls in this grade band.
   bool matches(double totalMarks) =>
       totalMarks >= minMarks && totalMarks <= maxMarks;
 
@@ -53,21 +47,14 @@ class GradeScale {
   );
 }
 
-/// Represents one subject in the current semester.
 class Subject {
   final String id;
   String name;
   double credits;
-
-  // Actual marks entered by student (null = not yet entered)
   double? internalMarks;
   double? endSemMarks;
-
-  // Expected / what-if marks (used for simulation)
   double? expectedInternalMarks;
   double? expectedEndSemMarks;
-
-  // Whether to use expected marks for calculation
   bool useExpected;
 
   Subject({
@@ -96,8 +83,7 @@ class Subject {
         credits: credits ?? this.credits,
         internalMarks: internalMarks ?? this.internalMarks,
         endSemMarks: endSemMarks ?? this.endSemMarks,
-        expectedInternalMarks:
-        expectedInternalMarks ?? this.expectedInternalMarks,
+        expectedInternalMarks: expectedInternalMarks ?? this.expectedInternalMarks,
         expectedEndSemMarks: expectedEndSemMarks ?? this.expectedEndSemMarks,
         useExpected: useExpected ?? this.useExpected,
       );
@@ -119,20 +105,18 @@ class Subject {
     credits: (json['credits'] as num).toDouble(),
     internalMarks: (json['internalMarks'] as num?)?.toDouble(),
     endSemMarks: (json['endSemMarks'] as num?)?.toDouble(),
-    expectedInternalMarks:
-    (json['expectedInternalMarks'] as num?)?.toDouble(),
+    expectedInternalMarks: (json['expectedInternalMarks'] as num?)?.toDouble(),
     expectedEndSemMarks: (json['expectedEndSemMarks'] as num?)?.toDouble(),
     useExpected: json['useExpected'] as bool? ?? false,
   );
 }
 
-/// Stores configuration for the marking scheme.
 class GradingConfig {
-  final double internalWeight;  // e.g. 40  (marks out of internalMax)
-  final double endSemWeight;    // e.g. 60  (marks out of endSemMax)
-  final double internalMax;     // max marks for internal (default 40)
-  final double endSemMax;       // max marks for end-sem  (default 60)
-  final List<GradeScale> gradeScales; // sorted descending by minMarks
+  final double internalWeight;
+  final double endSemWeight;
+  final double internalMax;
+  final double endSemMax;
+  final List<GradeScale> gradeScales;
 
   const GradingConfig({
     required this.internalWeight,
@@ -142,7 +126,6 @@ class GradingConfig {
     required this.gradeScales,
   });
 
-  /// Default university grading (Anna University style)
   static GradingConfig get defaultConfig => const GradingConfig(
     internalWeight: 40,
     endSemWeight: 60,
@@ -160,13 +143,12 @@ class GradingConfig {
   );
 }
 
-/// Holds computed results for a single subject.
 class SubjectResult {
   final Subject subject;
-  final double totalMarks;        // out of 100
+  final double totalMarks;
   final String grade;
   final double gradePoints;
-  final double weightedPoints;    // credits × gradePoints
+  final double weightedPoints;
   final bool isPassing;
 
   const SubjectResult({
@@ -179,11 +161,10 @@ class SubjectResult {
   });
 }
 
-/// Prediction for a single subject given a target grade.
 class SubjectPrediction {
   final Subject subject;
   final String targetGrade;
-  final double requiredEndSemMarks; // out of endSemMax
+  final double requiredEndSemMarks;
   final bool isAchievable;
   final String insight;
 
@@ -202,39 +183,24 @@ class SubjectPrediction {
 
 class SGPACalculator {
   final GradingConfig config;
-
   const SGPACalculator(this.config);
 
-  /// Converts internal + end-sem raw marks to a combined score out of 100.
-  /// Internal  : student scores [internalMarks] out of [config.internalMax]
-  /// End-Sem   : student scores [endSemMarks]   out of [config.endSemMax]
-  /// Total     = (internalMarks / internalMax * 40) + (endSemMarks / endSemMax * 60)
   double computeTotalMarks(double internal, double endSem) {
-    final normalizedInternal =
-        (internal / config.internalMax) * config.internalWeight;
-    final normalizedEndSem =
-        (endSem / config.endSemMax) * config.endSemWeight;
+    final normalizedInternal = (internal / config.internalMax) * config.internalWeight;
+    final normalizedEndSem = (endSem / config.endSemMax) * config.endSemWeight;
     return (normalizedInternal + normalizedEndSem).clamp(0.0, 100.0);
   }
 
-  /// Returns the GradeScale that matches [totalMarks], or 'F' if none.
   GradeScale resolveGrade(double totalMarks) {
     for (final scale in config.gradeScales) {
       if (scale.matches(totalMarks)) return scale;
     }
-    // Fall back to lowest grade
     return config.gradeScales.last;
   }
 
-  /// Computes SubjectResult for a subject using actual or expected marks.
   SubjectResult? computeSubjectResult(Subject subject) {
-    final internal = subject.useExpected
-        ? subject.expectedInternalMarks
-        : subject.internalMarks;
-    final endSem = subject.useExpected
-        ? subject.expectedEndSemMarks
-        : subject.endSemMarks;
-
+    final internal = subject.useExpected ? subject.expectedInternalMarks : subject.internalMarks;
+    final endSem = subject.useExpected ? subject.expectedEndSemMarks : subject.endSemMarks;
     if (internal == null || endSem == null) return null;
 
     final total = computeTotalMarks(internal, endSem);
@@ -250,45 +216,28 @@ class SGPACalculator {
     );
   }
 
-  /// Calculates SGPA from a list of subjects.
-  /// Returns null if no subjects have complete marks.
   double? calculateSGPA(List<Subject> subjects) {
-    final results =
-    subjects.map(computeSubjectResult).whereType<SubjectResult>().toList();
+    final results = subjects.map(computeSubjectResult).whereType<SubjectResult>().toList();
     if (results.isEmpty) return null;
-
-    final totalWeightedPoints =
-    results.fold(0.0, (sum, r) => sum + r.weightedPoints);
+    final totalWeightedPoints = results.fold(0.0, (sum, r) => sum + r.weightedPoints);
     final totalCredits = results.fold(0.0, (sum, r) => sum + r.subject.credits);
-
     if (totalCredits == 0) return null;
     return totalWeightedPoints / totalCredits;
   }
 
-  /// Calculates CGPA given previous semesters and current semester.
-  /// [prevSGPAs] = List of (sgpa, totalCredits) tuples for prior semesters.
   double? calculateCGPA(
       List<(double sgpa, double credits)> prevSemesters,
       List<Subject> currentSubjects,
       ) {
     final currentSGPA = calculateSGPA(currentSubjects);
-
     final allSemesters = [
       ...prevSemesters,
       if (currentSGPA != null)
-        (
-        currentSGPA,
-        currentSubjects.fold(0.0, (s, sub) => s + sub.credits),
-        ),
+        (currentSGPA, currentSubjects.fold(0.0, (s, sub) => s + sub.credits)),
     ];
-
     if (allSemesters.isEmpty) return null;
-
-    final totalWeighted = allSemesters.fold(
-        0.0, (sum, sem) => sum + (sem.$1 * sem.$2));
-    final totalCredits =
-    allSemesters.fold(0.0, (sum, sem) => sum + sem.$2);
-
+    final totalWeighted = allSemesters.fold(0.0, (sum, sem) => sum + (sem.$1 * sem.$2));
+    final totalCredits = allSemesters.fold(0.0, (sum, sem) => sum + sem.$2);
     if (totalCredits == 0) return null;
     return totalWeighted / totalCredits;
   }
@@ -304,134 +253,83 @@ class PredictionEngine {
 
   PredictionEngine(this.config) : calculator = SGPACalculator(config);
 
-  /// For a subject, given a target grade label (e.g., "O"),
-  /// computes the minimum end-sem marks required.
-  SubjectPrediction predictForTargetGrade(
-      Subject subject, String targetGradeLabel) {
-    // Find the target grade scale
+  SubjectPrediction predictForTargetGrade(Subject subject, String targetGradeLabel) {
     final targetScale = config.gradeScales.firstWhere(
           (s) => s.label == targetGradeLabel,
       orElse: () => config.gradeScales.last,
     );
-
-    // Use actual internal marks if available, else expected, else 0
-    final internal = subject.internalMarks ??
-        subject.expectedInternalMarks ??
-        0.0;
-
-    // Minimum total score needed = targetScale.minMarks
-    // total = (internal / internalMax * 40) + (endSem / endSemMax * 60)
-    // Solve for endSem:
-    // endSem = ((target - internalContribution) / 60) * endSemMax
-    final internalContribution =
-        (internal / config.internalMax) * config.internalWeight;
-    final requiredEndSemNormalized =
-        targetScale.minMarks - internalContribution;
-    final requiredEndSem =
-        (requiredEndSemNormalized / config.endSemWeight) * config.endSemMax;
-
+    final internal = subject.internalMarks ?? subject.expectedInternalMarks ?? 0.0;
+    final internalContribution = (internal / config.internalMax) * config.internalWeight;
+    final requiredEndSemNormalized = targetScale.minMarks - internalContribution;
+    final requiredEndSem = (requiredEndSemNormalized / config.endSemWeight) * config.endSemMax;
     final clamped = requiredEndSem.clamp(0.0, config.endSemMax);
     final isAchievable = requiredEndSem <= config.endSemMax;
-
-    final insight = _buildInsight(
-      subject.name,
-      targetGradeLabel,
-      clamped,
-      isAchievable,
-      internal,
-    );
 
     return SubjectPrediction(
       subject: subject,
       targetGrade: targetGradeLabel,
       requiredEndSemMarks: clamped,
       isAchievable: isAchievable,
-      insight: insight,
+      insight: _buildInsight(subject.name, targetGradeLabel, clamped, isAchievable, internal),
     );
   }
 
-  String _buildInsight(String subjectName, String grade, double required,
-      bool achievable, double internal) {
-    if (!achievable) {
-      return '❌ $subjectName: $grade grade not achievable with internal $internal/${config.internalMax}.';
-    }
-    if (required >= config.endSemMax * 0.95) {
-      return '⚠️ $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — very tough for $grade.';
-    }
-    if (required >= config.endSemMax * 0.75) {
-      return '🟡 $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — moderate effort for $grade.';
-    }
+  String _buildInsight(String subjectName, String grade, double required, bool achievable, double internal) {
+    if (!achievable) return '❌ $subjectName: $grade grade not achievable with internal $internal/${config.internalMax}.';
+    if (required >= config.endSemMax * 0.95) return '⚠️ $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — very tough for $grade.';
+    if (required >= config.endSemMax * 0.75) return '🟡 $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — moderate effort for $grade.';
     return '✅ $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — achievable for $grade.';
   }
 
-  /// Given a target CGPA, returns the required SGPA for the current semester.
   double requiredSGPAForTargetCGPA({
     required double currentCGPA,
     required double completedCredits,
     required double targetCGPA,
     required double currentSemesterCredits,
   }) {
-    // CGPA = (currentCGPA * completedCredits + SGPA * semCredits)
-    //         / (completedCredits + semCredits)
-    // Solving for SGPA:
     final total = completedCredits + currentSemesterCredits;
-    final required =
-        (targetCGPA * total - currentCGPA * completedCredits) /
-            currentSemesterCredits;
+    final required = (targetCGPA * total - currentCGPA * completedCredits) / currentSemesterCredits;
     return required.clamp(0.0, 10.0);
   }
 
-  /// Suggests marks distribution across subjects to achieve a target SGPA.
-  /// Strategy: start from the highest-credit subject and assign optimally.
   List<SubjectPrediction> suggestMarksForTargetSGPA({
     required List<Subject> subjects,
     required double targetSGPA,
     String preferredTargetGrade = 'A+',
   }) {
-    // Find the grade needed to achieve targetSGPA across subjects uniformly
-    // Simple strategy: find the grade band that gives >= targetSGPA gradePoints
     final neededGradePoints = targetSGPA;
     GradeScale targetScale = config.gradeScales.last;
     for (final scale in config.gradeScales) {
       if (scale.gradePoints >= neededGradePoints) {
         targetScale = scale;
-        // Pick the lowest grade that still meets the threshold
         break;
       }
     }
-
-    return subjects
-        .map((s) => predictForTargetGrade(s, targetScale.label))
-        .toList();
+    return subjects.map((s) => predictForTargetGrade(s, targetScale.label)).toList();
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SECTION 4 — STATE MANAGEMENT (Provider / ChangeNotifier)
+// SECTION 4 — STATE MANAGEMENT
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ResultPredictionProvider extends ChangeNotifier {
-  // ── Config ──────────────────────────────────────────────────────────────
   GradingConfig _gradingConfig = GradingConfig.defaultConfig;
   GradingConfig get gradingConfig => _gradingConfig;
 
-  // ── Subjects ─────────────────────────────────────────────────────────────
   List<Subject> _subjects = [];
   List<Subject> get subjects => List.unmodifiable(_subjects);
 
-  // ── Previous Semester Data ────────────────────────────────────────────────
   double _previousCGPA = 0.0;
   double _completedCredits = 0.0;
   double get previousCGPA => _previousCGPA;
   double get completedCredits => _completedCredits;
 
-  // ── Target Inputs ─────────────────────────────────────────────────────────
   String _targetGradeLabel = 'A+';
   double _targetCGPA = 8.5;
   String get targetGradeLabel => _targetGradeLabel;
   double get targetCGPA => _targetCGPA;
 
-  // ── Derived / Computed ────────────────────────────────────────────────────
   late SGPACalculator _sgpaCalculator;
   late PredictionEngine _predictionEngine;
 
@@ -454,10 +352,7 @@ class ResultPredictionProvider extends ChangeNotifier {
   }
 
   String _uid() =>
-      DateTime.now().microsecondsSinceEpoch.toString() +
-          Random().nextInt(9999).toString();
-
-  // ── Computed Properties ───────────────────────────────────────────────────
+      DateTime.now().microsecondsSinceEpoch.toString() + Random().nextInt(9999).toString();
 
   List<SubjectResult?> get subjectResults =>
       _subjects.map(_sgpaCalculator.computeSubjectResult).toList();
@@ -467,13 +362,10 @@ class ResultPredictionProvider extends ChangeNotifier {
   double? get predictedCGPA {
     final sgpa = currentSGPA;
     if (sgpa == null && _completedCredits == 0) return null;
-
-    final semCredits =
-    _subjects.fold(0.0, (s, sub) => s + sub.credits);
+    final semCredits = _subjects.fold(0.0, (s, sub) => s + sub.credits);
     final prevSemesters = _completedCredits > 0
         ? [(_previousCGPA, _completedCredits)]
         : <(double, double)>[];
-
     return _sgpaCalculator.calculateCGPA(prevSemesters, _subjects);
   }
 
@@ -503,14 +395,8 @@ class ResultPredictionProvider extends ChangeNotifier {
         targetSGPA: requiredSGPAForTarget,
       );
 
-  // ── Mutations ─────────────────────────────────────────────────────────────
-
   void addSubject() {
-    _subjects.add(Subject(
-      id: _uid(),
-      name: 'Subject ${_subjects.length + 1}',
-      credits: 3,
-    ));
+    _subjects.add(Subject(id: _uid(), name: 'Subject ${_subjects.length + 1}', credits: 3));
     _save();
     notifyListeners();
   }
@@ -521,55 +407,18 @@ class ResultPredictionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateSubjectName(String id, String name) {
-    _mutate(id, (s) => s.copyWith(name: name));
-  }
+  void updateSubjectName(String id, String name) => _mutate(id, (s) => s.copyWith(name: name));
+  void updateSubjectCredits(String id, double credits) => _mutate(id, (s) => s.copyWith(credits: credits));
+  void updateInternalMarks(String id, double? marks) => _mutate(id, (s) => s.copyWith(internalMarks: marks));
+  void updateEndSemMarks(String id, double? marks) => _mutate(id, (s) => s.copyWith(endSemMarks: marks));
+  void updateExpectedInternalMarks(String id, double? marks) => _mutate(id, (s) => s.copyWith(expectedInternalMarks: marks));
+  void updateExpectedEndSemMarks(String id, double? marks) => _mutate(id, (s) => s.copyWith(expectedEndSemMarks: marks));
+  void toggleUseExpected(String id, bool value) => _mutate(id, (s) => s.copyWith(useExpected: value));
 
-  void updateSubjectCredits(String id, double credits) {
-    _mutate(id, (s) => s.copyWith(credits: credits));
-  }
-
-  void updateInternalMarks(String id, double? marks) {
-    _mutate(id, (s) => s.copyWith(internalMarks: marks));
-  }
-
-  void updateEndSemMarks(String id, double? marks) {
-    _mutate(id, (s) => s.copyWith(endSemMarks: marks));
-  }
-
-  void updateExpectedInternalMarks(String id, double? marks) {
-    _mutate(id, (s) => s.copyWith(expectedInternalMarks: marks));
-  }
-
-  void updateExpectedEndSemMarks(String id, double? marks) {
-    _mutate(id, (s) => s.copyWith(expectedEndSemMarks: marks));
-  }
-
-  void toggleUseExpected(String id, bool value) {
-    _mutate(id, (s) => s.copyWith(useExpected: value));
-  }
-
-  void setPreviousCGPA(double val) {
-    _previousCGPA = val.clamp(0.0, 10.0);
-    _save();
-    notifyListeners();
-  }
-
-  void setCompletedCredits(double val) {
-    _completedCredits = val.clamp(0.0, 500.0);
-    _save();
-    notifyListeners();
-  }
-
-  void setTargetGradeLabel(String label) {
-    _targetGradeLabel = label;
-    notifyListeners();
-  }
-
-  void setTargetCGPA(double val) {
-    _targetCGPA = val.clamp(0.0, 10.0);
-    notifyListeners();
-  }
+  void setPreviousCGPA(double val) { _previousCGPA = val.clamp(0.0, 10.0); _save(); notifyListeners(); }
+  void setCompletedCredits(double val) { _completedCredits = val.clamp(0.0, 500.0); _save(); notifyListeners(); }
+  void setTargetGradeLabel(String label) { _targetGradeLabel = label; notifyListeners(); }
+  void setTargetCGPA(double val) { _targetCGPA = val.clamp(0.0, 10.0); notifyListeners(); }
 
   void _mutate(String id, Subject Function(Subject) updater) {
     final idx = _subjects.indexWhere((s) => s.id == id);
@@ -578,8 +427,6 @@ class ResultPredictionProvider extends ChangeNotifier {
     _save();
     notifyListeners();
   }
-
-  // ── Persistence ───────────────────────────────────────────────────────────
 
   Future<void> _save() async {
     try {
@@ -590,9 +437,7 @@ class ResultPredictionProvider extends ChangeNotifier {
         'completedCredits': _completedCredits,
       };
       await prefs.setString('result_prediction_data', jsonEncode(data));
-    } catch (_) {
-      // Silently fail — non-critical persistence
-    }
+    } catch (_) {}
   }
 
   Future<void> _loadFromPrefs() async {
@@ -607,9 +452,7 @@ class ResultPredictionProvider extends ChangeNotifier {
       _previousCGPA = (data['previousCGPA'] as num?)?.toDouble() ?? 0.0;
       _completedCredits = (data['completedCredits'] as num?)?.toDouble() ?? 0.0;
       notifyListeners();
-    } catch (_) {
-      // Corrupted data — start fresh
-    }
+    } catch (_) {}
   }
 
   void clearAll() {
@@ -624,20 +467,54 @@ class ResultPredictionProvider extends ChangeNotifier {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 5 — THEME & DESIGN TOKENS
+// Red/Rose accent palette with full light/dark mode support
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AppTheme {
-  static const Color bg = Color(0xFF0F1117);
-  static const Color surface = Color(0xFF1A1D27);
-  static const Color surfaceElevated = Color(0xFF222535);
-  static const Color accent = Color(0xFF6C63FF);
-  static const Color accentLight = Color(0xFF8B85FF);
-  static const Color green = Color(0xFF29D6A4);
+  // ── Red/Rose accent — same in both modes ──────────────────────────────────
+  static const Color accent      = Color(0xFFE53935); // vivid red
+  static const Color accentLight = Color(0xFFFF6B6B); // soft rose
+  static const Color accentDark  = Color(0xFFB71C1C); // deep red
+
+  // ── Status colors ─────────────────────────────────────────────────────────
+  static const Color green  = Color(0xFF29D6A4);
   static const Color yellow = Color(0xFFFFBB38);
-  static const Color red = Color(0xFFFF5C7A);
-  static const Color textPrimary = Color(0xFFEEF0FF);
-  static const Color textSecondary = Color(0xFF8B8FA8);
-  static const Color border = Color(0xFF2E3147);
+  static const Color red    = Color(0xFFFF5C7A);
+
+  // ── Dark palette ──────────────────────────────────────────────────────────
+  static const Color _darkBg              = Color(0xFF0F0E17);
+  static const Color _darkSurface         = Color(0xFF1A1520);
+  static const Color _darkSurfaceElevated = Color(0xFF241D2B);
+  static const Color _darkTextPrimary     = Color(0xFFF5F0FF);
+  static const Color _darkTextSecondary   = Color(0xFF9A8FAA);
+  static const Color _darkBorder          = Color(0xFF2E2538);
+
+  // ── Light palette ─────────────────────────────────────────────────────────
+  static const Color _lightBg              = Color(0xFFFFF5F5); // very light rose tint
+  static const Color _lightSurface         = Color(0xFFFFFFFF);
+  static const Color _lightSurfaceElevated = Color(0xFFFFF0F0); // warm off-white
+  static const Color _lightTextPrimary     = Color(0xFF1A0A0A);
+  static const Color _lightTextSecondary   = Color(0xFF7A5A5A);
+  static const Color _lightBorder          = Color(0xFFFFD6D6);
+
+  // ── Adaptive getters ──────────────────────────────────────────────────────
+  static Color bg(bool isDark) =>
+      isDark ? _darkBg : _lightBg;
+  static Color surface(bool isDark) =>
+      isDark ? _darkSurface : _lightSurface;
+  static Color surfaceElevated(bool isDark) =>
+      isDark ? _darkSurfaceElevated : _lightSurfaceElevated;
+  static Color textPrimary(bool isDark) =>
+      isDark ? _darkTextPrimary : _lightTextPrimary;
+  static Color textSecondary(bool isDark) =>
+      isDark ? _darkTextSecondary : _lightTextSecondary;
+  static Color border(bool isDark) =>
+      isDark ? _darkBorder : _lightBorder;
+
+  // ── Summary banner gradient adapts to mode ────────────────────────────────
+  static List<Color> bannerGradient(bool isDark) => isDark
+      ? [const Color(0xFF2A0A0A), const Color(0xFF1A1520)]
+      : [const Color(0xFFFFE5E5), const Color(0xFFFFF0F0)];
 
   static Color statusColor(double marks, double maxMarks) {
     final pct = marks / maxMarks;
@@ -648,53 +525,54 @@ class _AppTheme {
 
   static Color gradeColor(String grade) {
     switch (grade) {
-      case 'O':
-        return green;
+      case 'O':  return green;
       case 'A+':
-      case 'A':
-        return const Color(0xFF5DADE2);
+      case 'A':  return const Color(0xFF5DADE2);
       case 'B+':
-      case 'B':
-        return yellow;
-      default:
-        return red;
+      case 'B':  return yellow;
+      default:   return red;
     }
   }
 
-  static ThemeData get theme => ThemeData(
-    brightness: Brightness.dark,
-    scaffoldBackgroundColor: bg,
-    colorScheme: const ColorScheme.dark(
-      surface: surface,
+  static ThemeData buildTheme(bool isDark) => ThemeData(
+    brightness: isDark ? Brightness.dark : Brightness.light,
+    scaffoldBackgroundColor: bg(isDark),
+    colorScheme: isDark
+        ? ColorScheme.dark(
+      surface: surface(isDark),
+      primary: accent,
+      secondary: accentLight,
+    )
+        : ColorScheme.light(
+      surface: surface(isDark),
       primary: accent,
       secondary: accentLight,
     ),
     cardTheme: CardThemeData(
-      color: surface,
+      color: surface(isDark),
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: border, width: 1),
+        side: BorderSide(color: border(isDark), width: 1),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: surfaceElevated,
+      fillColor: surfaceElevated(isDark),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: border),
+        borderSide: BorderSide(color: border(isDark)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: border),
+        borderSide: BorderSide(color: border(isDark)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: const BorderSide(color: accent, width: 1.5),
       ),
-      labelStyle: const TextStyle(color: textSecondary, fontSize: 12),
-      contentPadding:
-      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      labelStyle: TextStyle(color: textSecondary(isDark), fontSize: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     ),
     fontFamily: 'Roboto',
   );
@@ -704,13 +582,6 @@ class _AppTheme {
 // SECTION 6 — MAIN SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Entry point — wrap in ChangeNotifierProvider before use.
-/// Your HomeScreen's navigation call:
-///   Navigator.push(context, MaterialPageRoute(
-///     builder: (_) => const ResultScreen()));
-///
-/// Make sure to add the provider higher in your widget tree (e.g. main.dart):
-///   ChangeNotifierProvider(create: (_) => ResultPredictionProvider(), ...)
 class ResultScreen extends StatefulWidget {
   const ResultScreen({super.key});
 
@@ -736,81 +607,146 @@ class _ResultScreenState extends State<ResultScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Read ThemeProvider from your app's global provider
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final isDark = themeProvider.isDarkMode;
+
     return ChangeNotifierProvider(
-      // Provide locally so this module is self-contained.
-      // Remove this wrapper if you provide it globally in main.dart.
       create: (_) => ResultPredictionProvider(),
       child: Theme(
-        data: _AppTheme.theme,
-        child: Scaffold(
-          backgroundColor: _AppTheme.bg,
-          appBar: _buildAppBar(),
-          body: Column(
-            children: [
-              _SummaryBanner(),
-              _buildTabBar(),
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: const [
-                    _SubjectsTab(),
-                    _PredictionTab(),
-                    _InsightsTab(),
-                  ],
+        data: _AppTheme.buildTheme(isDark),
+        child: Builder(
+          builder: (context) => Scaffold(
+            backgroundColor: _AppTheme.bg(isDark),
+            appBar: _buildAppBar(context, themeProvider, isDark),
+            body: Column(
+              children: [
+                _SummaryBanner(isDark: isDark),
+                _buildTabBar(isDark),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _SubjectsTab(isDark: isDark),
+                      _PredictionTab(isDark: isDark),
+                      _InsightsTab(isDark: isDark),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
+            floatingActionButton: _buildFAB(isDark),
           ),
-          floatingActionButton: _buildFAB(),
         ),
       ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar() {
+  PreferredSizeWidget _buildAppBar(
+      BuildContext context,
+      ThemeProvider themeProvider,
+      bool isDark,
+      ) {
     return AppBar(
-      backgroundColor: _AppTheme.bg,
+      backgroundColor: _AppTheme.bg(isDark),
       elevation: 0,
-      leading: BackButton(color: _AppTheme.textPrimary),
-      title: const Text(
+      leading: BackButton(color: _AppTheme.textPrimary(isDark)),
+      title: Text(
         'Result Prediction',
         style: TextStyle(
-          color: _AppTheme.textPrimary,
+          color: _AppTheme.textPrimary(isDark),
           fontSize: 18,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.3,
         ),
       ),
       actions: [
+        // ── Dark Mode Toggle (matches HomeScreen style) ──────────────────
+        GestureDetector(
+          onTap: () => themeProvider.toggleTheme(),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: 52,
+            height: 28,
+            margin: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: isDark
+                  ? const LinearGradient(
+                colors: [Color(0xFFE53935), Color(0xFFB71C1C)],
+              )
+                  : LinearGradient(
+                colors: [Colors.grey.shade300, Colors.grey.shade200],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: isDark
+                      ? const Color(0xFFE53935).withOpacity(0.4)
+                      : Colors.black.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: AnimatedAlign(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                width: 22,
+                height: 22,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Icon(
+                    isDark ? Icons.dark_mode_rounded : Icons.wb_sunny_rounded,
+                    color: isDark ? const Color(0xFFE53935) : Colors.amber,
+                    size: 13,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        // ── Reset Button ─────────────────────────────────────────────────
         Consumer<ResultPredictionProvider>(
           builder: (context, provider, _) => IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: _AppTheme.textSecondary),
+            icon: Icon(Icons.refresh_rounded,
+                color: _AppTheme.textSecondary(isDark)),
             tooltip: 'Reset all data',
-            onPressed: () => _confirmReset(context, provider),
+            onPressed: () => _confirmReset(context, provider, isDark),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildTabBar() {
+  Widget _buildTabBar(bool isDark) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: _AppTheme.surface,
+        color: _AppTheme.surface(isDark),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _AppTheme.border),
+        border: Border.all(color: _AppTheme.border(isDark)),
       ),
       child: TabBar(
         controller: _tabController,
         indicator: BoxDecoration(
-          color: _AppTheme.accent,
+          // Red gradient tab indicator
+          gradient: const LinearGradient(
+            colors: [Color(0xFFE53935), Color(0xFFFF6B6B)],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
           borderRadius: BorderRadius.circular(10),
         ),
         indicatorSize: TabBarIndicatorSize.tab,
         dividerColor: Colors.transparent,
         labelColor: Colors.white,
-        unselectedLabelColor: _AppTheme.textSecondary,
+        unselectedLabelColor: _AppTheme.textSecondary(isDark),
         labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
         tabs: const [
           Tab(text: 'Subjects'),
@@ -821,34 +757,64 @@ class _ResultScreenState extends State<ResultScreen>
     );
   }
 
-  Widget _buildFAB() {
+  Widget _buildFAB(bool isDark) {
     return Consumer<ResultPredictionProvider>(
       builder: (context, provider, _) => FloatingActionButton.extended(
         onPressed: provider.addSubject,
-        backgroundColor: _AppTheme.accent,
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text('Add Subject',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+        // Red gradient FAB
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        extendedPadding: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        label: Ink(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFE53935), Color(0xFFFF6B6B)],
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFE53935).withOpacity(0.4),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.add, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text('Add Subject',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  void _confirmReset(BuildContext context, ResultPredictionProvider provider) {
+  void _confirmReset(
+      BuildContext context, ResultPredictionProvider provider, bool isDark) {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: _AppTheme.surfaceElevated,
-        title: const Text('Reset All Data?',
-            style: TextStyle(color: _AppTheme.textPrimary)),
-        content: const Text(
+        backgroundColor: _AppTheme.surfaceElevated(isDark),
+        title: Text('Reset All Data?',
+            style: TextStyle(color: _AppTheme.textPrimary(isDark))),
+        content: Text(
           'This will clear all subjects and marks. Cannot be undone.',
-          style: TextStyle(color: _AppTheme.textSecondary),
+          style: TextStyle(color: _AppTheme.textSecondary(isDark)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel',
-                style: TextStyle(color: _AppTheme.textSecondary)),
+            child: Text('Cancel',
+                style: TextStyle(color: _AppTheme.textSecondary(isDark))),
           ),
           TextButton(
             onPressed: () {
@@ -856,7 +822,7 @@ class _ResultScreenState extends State<ResultScreen>
               Navigator.pop(context);
             },
             child: const Text('Reset',
-                style: TextStyle(color: _AppTheme.red)),
+                style: TextStyle(color: Color(0xFFE53935))),
           ),
         ],
       ),
@@ -869,7 +835,8 @@ class _ResultScreenState extends State<ResultScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _SummaryBanner extends StatelessWidget {
-  const _SummaryBanner();
+  final bool isDark;
+  const _SummaryBanner({required this.isDark});
 
   @override
   Widget build(BuildContext context) {
@@ -882,8 +849,8 @@ class _SummaryBanner extends StatelessWidget {
           margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1E1B4B), Color(0xFF1A1D27)],
+            gradient: LinearGradient(
+              colors: _AppTheme.bannerGradient(isDark),
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -895,25 +862,27 @@ class _SummaryBanner extends StatelessWidget {
               _StatPill(
                 label: 'SGPA',
                 value: sgpa != null ? sgpa.toStringAsFixed(2) : '--',
-                color: sgpa != null
-                    ? _sgpaColor(sgpa)
-                    : _AppTheme.textSecondary,
+                color: sgpa != null ? _sgpaColor(sgpa) : _AppTheme.textSecondary(isDark),
+                isDark: isDark,
               ),
               const SizedBox(width: 12),
-              Container(width: 1, height: 40, color: _AppTheme.border),
+              Container(
+                  width: 1,
+                  height: 40,
+                  color: _AppTheme.border(isDark)),
               const SizedBox(width: 12),
               _StatPill(
                 label: 'Predicted CGPA',
                 value: cgpa != null ? cgpa.toStringAsFixed(2) : '--',
-                color: cgpa != null
-                    ? _sgpaColor(cgpa)
-                    : _AppTheme.textSecondary,
+                color: cgpa != null ? _sgpaColor(cgpa) : _AppTheme.textSecondary(isDark),
+                isDark: isDark,
               ),
               const Spacer(),
               if (provider.mostImpactfulSubject != null)
                 _HighlightChip(
                   label: '⭐ ${provider.mostImpactfulSubject!.name}',
                   subtitle: '${provider.mostImpactfulSubject!.credits} credits',
+                  isDark: isDark,
                 ),
             ],
           ),
@@ -933,9 +902,14 @@ class _StatPill extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
+  final bool isDark;
 
-  const _StatPill(
-      {required this.label, required this.value, required this.color});
+  const _StatPill({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -943,8 +917,8 @@ class _StatPill extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: const TextStyle(
-                color: _AppTheme.textSecondary, fontSize: 11)),
+            style: TextStyle(
+                color: _AppTheme.textSecondary(isDark), fontSize: 11)),
         const SizedBox(height: 2),
         Text(value,
             style: TextStyle(
@@ -960,14 +934,16 @@ class _StatPill extends StatelessWidget {
 class _HighlightChip extends StatelessWidget {
   final String label;
   final String subtitle;
-  const _HighlightChip({required this.label, required this.subtitle});
+  final bool isDark;
+  const _HighlightChip(
+      {required this.label, required this.subtitle, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: _AppTheme.accent.withOpacity(0.15),
+        color: _AppTheme.accent.withOpacity(0.12),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: _AppTheme.accent.withOpacity(0.3)),
       ),
@@ -980,8 +956,8 @@ class _HighlightChip extends StatelessWidget {
                   fontSize: 11,
                   fontWeight: FontWeight.w600)),
           Text(subtitle,
-              style: const TextStyle(
-                  color: _AppTheme.textSecondary, fontSize: 10)),
+              style: TextStyle(
+                  color: _AppTheme.textSecondary(isDark), fontSize: 10)),
         ],
       ),
     );
@@ -993,7 +969,8 @@ class _HighlightChip extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _SubjectsTab extends StatelessWidget {
-  const _SubjectsTab();
+  final bool isDark;
+  const _SubjectsTab({required this.isDark});
 
   @override
   Widget build(BuildContext context) {
@@ -1013,6 +990,7 @@ class _SubjectsTab extends StatelessWidget {
               isMostImpactful: subjects[idx].id == mostImpactId,
               config: provider.gradingConfig,
               provider: provider,
+              isDark: isDark,
             );
           },
         );
@@ -1027,6 +1005,7 @@ class _SubjectCard extends StatefulWidget {
   final bool isMostImpactful;
   final GradingConfig config;
   final ResultPredictionProvider provider;
+  final bool isDark;
 
   const _SubjectCard({
     required this.subject,
@@ -1034,6 +1013,7 @@ class _SubjectCard extends StatefulWidget {
     required this.isMostImpactful,
     required this.config,
     required this.provider,
+    required this.isDark,
   });
 
   @override
@@ -1055,16 +1035,11 @@ class _SubjectCardState extends State<_SubjectCard> {
     super.initState();
     final s = widget.subject;
     _nameCtrl = TextEditingController(text: s.name);
-    _creditsCtrl =
-        TextEditingController(text: s.credits.toStringAsFixed(0));
-    _internalCtrl =
-        TextEditingController(text: s.internalMarks?.toStringAsFixed(1) ?? '');
-    _endSemCtrl =
-        TextEditingController(text: s.endSemMarks?.toStringAsFixed(1) ?? '');
-    _expInternalCtrl = TextEditingController(
-        text: s.expectedInternalMarks?.toStringAsFixed(1) ?? '');
-    _expEndSemCtrl = TextEditingController(
-        text: s.expectedEndSemMarks?.toStringAsFixed(1) ?? '');
+    _creditsCtrl = TextEditingController(text: s.credits.toStringAsFixed(0));
+    _internalCtrl = TextEditingController(text: s.internalMarks?.toStringAsFixed(1) ?? '');
+    _endSemCtrl = TextEditingController(text: s.endSemMarks?.toStringAsFixed(1) ?? '');
+    _expInternalCtrl = TextEditingController(text: s.expectedInternalMarks?.toStringAsFixed(1) ?? '');
+    _expEndSemCtrl = TextEditingController(text: s.expectedEndSemMarks?.toStringAsFixed(1) ?? '');
   }
 
   @override
@@ -1084,23 +1059,24 @@ class _SubjectCardState extends State<_SubjectCard> {
     final r = widget.result;
     final isMost = widget.isMostImpactful;
     final p = widget.provider;
+    final isDark = widget.isDark;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: _AppTheme.surface,
+        color: _AppTheme.surface(isDark),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isMost
               ? _AppTheme.accent.withOpacity(0.5)
-              : _AppTheme.border,
+              : _AppTheme.border(isDark),
           width: isMost ? 1.5 : 1,
         ),
       ),
       child: Column(
         children: [
-          // ── Header row ────────────────────────────────────────────────────
+          // ── Header ────────────────────────────────────────────────────────
           InkWell(
             onTap: () => setState(() => _expanded = !_expanded),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
@@ -1111,10 +1087,9 @@ class _SubjectCardState extends State<_SubjectCard> {
                   if (isMost)
                     Container(
                       margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: _AppTheme.accent.withOpacity(0.2),
+                        color: _AppTheme.accent.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: const Text('⭐ Top',
@@ -1123,8 +1098,8 @@ class _SubjectCardState extends State<_SubjectCard> {
                     ),
                   Expanded(
                     child: Text(s.name,
-                        style: const TextStyle(
-                            color: _AppTheme.textPrimary,
+                        style: TextStyle(
+                            color: _AppTheme.textPrimary(isDark),
                             fontWeight: FontWeight.w600,
                             fontSize: 14)),
                   ),
@@ -1133,20 +1108,19 @@ class _SubjectCardState extends State<_SubjectCard> {
                     const SizedBox(width: 8),
                     Text(r.totalMarks.toStringAsFixed(1),
                         style: TextStyle(
-                            color: _AppTheme.statusColor(
-                                r.totalMarks, 100),
+                            color: _AppTheme.statusColor(r.totalMarks, 100),
                             fontWeight: FontWeight.w700,
                             fontSize: 16)),
                   ],
                   const SizedBox(width: 8),
                   Icon(
                     _expanded ? Icons.expand_less : Icons.expand_more,
-                    color: _AppTheme.textSecondary,
+                    color: _AppTheme.textSecondary(isDark),
                     size: 20,
                   ),
                   IconButton(
-                    icon: const Icon(Icons.delete_outline,
-                        color: _AppTheme.textSecondary, size: 18),
+                    icon: Icon(Icons.delete_outline,
+                        color: _AppTheme.textSecondary(isDark), size: 18),
                     onPressed: () => p.removeSubject(s.id),
                     constraints: const BoxConstraints(),
                     padding: const EdgeInsets.only(left: 4),
@@ -1156,15 +1130,14 @@ class _SubjectCardState extends State<_SubjectCard> {
             ),
           ),
 
-          // ── Credits & name editor ─────────────────────────────────────────
+          // ── Expanded body ─────────────────────────────────────────────────
           if (_expanded) ...[
-            const Divider(color: _AppTheme.border, height: 1),
+            Divider(color: _AppTheme.border(isDark), height: 1),
             Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Name + Credits row
                   Row(
                     children: [
                       Expanded(
@@ -1173,6 +1146,7 @@ class _SubjectCardState extends State<_SubjectCard> {
                           label: 'Subject Name',
                           controller: _nameCtrl,
                           isText: true,
+                          isDark: isDark,
                           onChanged: (v) => p.updateSubjectName(s.id, v),
                         ),
                       ),
@@ -1182,6 +1156,7 @@ class _SubjectCardState extends State<_SubjectCard> {
                           label: 'Credits',
                           controller: _creditsCtrl,
                           maxVal: 6,
+                          isDark: isDark,
                           onChanged: (v) {
                             final d = double.tryParse(v);
                             if (d != null) p.updateSubjectCredits(s.id, d);
@@ -1191,101 +1166,79 @@ class _SubjectCardState extends State<_SubjectCard> {
                     ],
                   ),
                   const SizedBox(height: 12),
-
-                  // Toggle actual vs expected
                   Row(
                     children: [
-                      const Text('Use Expected Marks (What-If)',
+                      Text('Use Expected Marks (What-If)',
                           style: TextStyle(
-                              color: _AppTheme.textSecondary, fontSize: 12)),
+                              color: _AppTheme.textSecondary(isDark),
+                              fontSize: 12)),
                       const Spacer(),
                       Switch(
                         value: s.useExpected,
                         onChanged: (v) => p.toggleUseExpected(s.id, v),
                         activeColor: _AppTheme.accent,
-                        materialTapTargetSize:
-                        MaterialTapTargetSize.shrinkWrap,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-
-                  // Actual marks
-                  _SectionLabel(
-                      '📝 Actual Marks',
-                      active: !s.useExpected),
+                  _SectionLabel('📝 Actual Marks',
+                      active: !s.useExpected, isDark: isDark),
                   const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
                         child: _MarkInput(
-                          label:
-                          'Internal (/${widget.config.internalMax.toStringAsFixed(0)})',
+                          label: 'Internal (/${widget.config.internalMax.toStringAsFixed(0)})',
                           controller: _internalCtrl,
                           maxVal: widget.config.internalMax,
                           enabled: !s.useExpected,
-                          onChanged: (v) {
-                            final d = double.tryParse(v);
-                            p.updateInternalMarks(s.id, d);
-                          },
+                          isDark: isDark,
+                          onChanged: (v) => p.updateInternalMarks(s.id, double.tryParse(v)),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: _MarkInput(
-                          label:
-                          'End-Sem (/${widget.config.endSemMax.toStringAsFixed(0)})',
+                          label: 'End-Sem (/${widget.config.endSemMax.toStringAsFixed(0)})',
                           controller: _endSemCtrl,
                           maxVal: widget.config.endSemMax,
                           enabled: !s.useExpected,
-                          onChanged: (v) {
-                            final d = double.tryParse(v);
-                            p.updateEndSemMarks(s.id, d);
-                          },
+                          isDark: isDark,
+                          onChanged: (v) => p.updateEndSemMarks(s.id, double.tryParse(v)),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-
-                  // Expected marks
-                  _SectionLabel(
-                      '🔮 Expected Marks (Simulation)',
-                      active: s.useExpected),
+                  _SectionLabel('🔮 Expected Marks (Simulation)',
+                      active: s.useExpected, isDark: isDark),
                   const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
                         child: _MarkInput(
-                          label:
-                          'Exp. Internal (/${widget.config.internalMax.toStringAsFixed(0)})',
+                          label: 'Exp. Internal (/${widget.config.internalMax.toStringAsFixed(0)})',
                           controller: _expInternalCtrl,
                           maxVal: widget.config.internalMax,
                           enabled: s.useExpected,
-                          onChanged: (v) {
-                            final d = double.tryParse(v);
-                            p.updateExpectedInternalMarks(s.id, d);
-                          },
+                          isDark: isDark,
+                          onChanged: (v) => p.updateExpectedInternalMarks(s.id, double.tryParse(v)),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: _MarkInput(
-                          label:
-                          'Exp. End-Sem (/${widget.config.endSemMax.toStringAsFixed(0)})',
+                          label: 'Exp. End-Sem (/${widget.config.endSemMax.toStringAsFixed(0)})',
                           controller: _expEndSemCtrl,
                           maxVal: widget.config.endSemMax,
                           enabled: s.useExpected,
-                          onChanged: (v) {
-                            final d = double.tryParse(v);
-                            p.updateExpectedEndSemMarks(s.id, d);
-                          },
+                          isDark: isDark,
+                          onChanged: (v) => p.updateExpectedEndSemMarks(s.id, double.tryParse(v)),
                         ),
                       ),
                     ],
                   ),
-
-                  // End-Sem slider for quick simulation
                   if (s.useExpected) ...[
                     const SizedBox(height: 12),
                     _EndSemSlider(
@@ -1293,6 +1246,7 @@ class _SubjectCardState extends State<_SubjectCard> {
                       config: widget.config,
                       provider: p,
                       endSemController: _expEndSemCtrl,
+                      isDark: isDark,
                     ),
                   ],
                 ],
@@ -1310,7 +1264,8 @@ class _SubjectCardState extends State<_SubjectCard> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _PredictionTab extends StatelessWidget {
-  const _PredictionTab();
+  final bool isDark;
+  const _PredictionTab({required this.isDark});
 
   @override
   Widget build(BuildContext context) {
@@ -1319,11 +1274,11 @@ class _PredictionTab extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
           children: [
-            _PreviousSemesterCard(provider: provider),
+            _PreviousSemesterCard(provider: provider, isDark: isDark),
             const SizedBox(height: 16),
-            _TargetGradeCard(provider: provider),
+            _TargetGradeCard(provider: provider, isDark: isDark),
             const SizedBox(height: 16),
-            _TargetCGPACard(provider: provider),
+            _TargetCGPACard(provider: provider, isDark: isDark),
           ],
         );
       },
@@ -1333,7 +1288,8 @@ class _PredictionTab extends StatelessWidget {
 
 class _PreviousSemesterCard extends StatefulWidget {
   final ResultPredictionProvider provider;
-  const _PreviousSemesterCard({required this.provider});
+  final bool isDark;
+  const _PreviousSemesterCard({required this.provider, required this.isDark});
 
   @override
   State<_PreviousSemesterCard> createState() => _PreviousSemesterCardState();
@@ -1366,9 +1322,11 @@ class _PreviousSemesterCardState extends State<_PreviousSemesterCard> {
   @override
   Widget build(BuildContext context) {
     final p = widget.provider;
+    final isDark = widget.isDark;
     return _SectionCard(
       title: '📊 Previous Semester Data',
       subtitle: 'Required for CGPA calculation',
+      isDark: isDark,
       child: Row(
         children: [
           Expanded(
@@ -1376,6 +1334,7 @@ class _PreviousSemesterCardState extends State<_PreviousSemesterCard> {
               label: 'CGPA so far (0–10)',
               controller: _cgpaCtrl,
               maxVal: 10,
+              isDark: isDark,
               onChanged: (v) {
                 final d = double.tryParse(v);
                 if (d != null) p.setPreviousCGPA(d);
@@ -1388,6 +1347,7 @@ class _PreviousSemesterCardState extends State<_PreviousSemesterCard> {
               label: 'Completed Credits',
               controller: _creditsCtrl,
               maxVal: 500,
+              isDark: isDark,
               onChanged: (v) {
                 final d = double.tryParse(v);
                 if (d != null) p.setCompletedCredits(d);
@@ -1402,7 +1362,8 @@ class _PreviousSemesterCardState extends State<_PreviousSemesterCard> {
 
 class _TargetGradeCard extends StatelessWidget {
   final ResultPredictionProvider provider;
-  const _TargetGradeCard({required this.provider});
+  final bool isDark;
+  const _TargetGradeCard({required this.provider, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
@@ -1414,10 +1375,10 @@ class _TargetGradeCard extends StatelessWidget {
     return _SectionCard(
       title: '🎯 Target Grade Prediction',
       subtitle: 'Required end-sem marks per subject',
+      isDark: isDark,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Grade selector
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1427,26 +1388,38 @@ class _TargetGradeCard extends StatelessWidget {
                 onTap: () => provider.setTargetGradeLabel(g.label),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   decoration: BoxDecoration(
-                    color: selected
-                        ? _AppTheme.accentLight
-                        : _AppTheme.surfaceElevated,
+                    // Selected chip uses red gradient, unselected uses surface
+                    gradient: selected
+                        ? const LinearGradient(
+                      colors: [Color(0xFFE53935), Color(0xFFFF6B6B)],
+                    )
+                        : null,
+                    color: selected ? null : _AppTheme.surfaceElevated(isDark),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                        color: selected
-                            ? _AppTheme.accent
-                            : _AppTheme.border),
+                      color: selected
+                          ? Colors.transparent
+                          : _AppTheme.border(isDark),
+                    ),
+                    boxShadow: selected
+                        ? [
+                      BoxShadow(
+                        color: const Color(0xFFE53935).withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      )
+                    ]
+                        : null,
                   ),
                   child: Text(
                     '${g.label} (${g.gradePoints.toStringAsFixed(0)})',
                     style: TextStyle(
-                      color:
-                      selected ? Colors.white : _AppTheme.textSecondary,
-                      fontWeight: selected
-                          ? FontWeight.w700
-                          : FontWeight.normal,
+                      color: selected
+                          ? Colors.white
+                          : _AppTheme.textSecondary(isDark),
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
                       fontSize: 13,
                     ),
                   ),
@@ -1455,9 +1428,8 @@ class _TargetGradeCard extends StatelessWidget {
             }).toList(),
           ),
           const SizedBox(height: 16),
-          // Predictions per subject
-          ...predictions.map((pred) => _PredictionRow(prediction: pred,
-              config: provider.gradingConfig)),
+          ...predictions.map((pred) =>
+              _PredictionRow(prediction: pred, config: provider.gradingConfig, isDark: isDark)),
         ],
       ),
     );
@@ -1466,7 +1438,8 @@ class _TargetGradeCard extends StatelessWidget {
 
 class _TargetCGPACard extends StatefulWidget {
   final ResultPredictionProvider provider;
-  const _TargetCGPACard({required this.provider});
+  final bool isDark;
+  const _TargetCGPACard({required this.provider, required this.isDark});
 
   @override
   State<_TargetCGPACard> createState() => _TargetCGPACardState();
@@ -1484,20 +1457,22 @@ class _TargetCGPACardState extends State<_TargetCGPACard> {
   @override
   Widget build(BuildContext context) {
     final p = widget.provider;
+    final isDark = widget.isDark;
     final reqSGPA = p.requiredSGPAForTarget;
     final cgpaPreds = p.cgpaTargetPredictions;
 
     return _SectionCard(
       title: '🚀 Target CGPA Calculator',
       subtitle: 'Find required SGPA and marks',
+      isDark: isDark,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Text('Target CGPA: ',
-                  style: const TextStyle(
-                      color: _AppTheme.textSecondary, fontSize: 13)),
+                  style: TextStyle(
+                      color: _AppTheme.textSecondary(isDark), fontSize: 13)),
               Text(_sliderVal.toStringAsFixed(1),
                   style: const TextStyle(
                       color: _AppTheme.accentLight,
@@ -1505,27 +1480,34 @@ class _TargetCGPACardState extends State<_TargetCGPACard> {
                       fontSize: 18)),
             ],
           ),
-          Slider(
-            value: _sliderVal,
-            min: 5.0,
-            max: 10.0,
-            divisions: 50,
-            activeColor: _AppTheme.accent,
-            inactiveColor: _AppTheme.border,
-            onChanged: (v) {
-              setState(() => _sliderVal = v);
-              p.setTargetCGPA(v);
-            },
+          SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: _AppTheme.accent,
+              inactiveTrackColor: _AppTheme.border(isDark),
+              thumbColor: _AppTheme.accent,
+              overlayColor: _AppTheme.accent.withOpacity(0.2),
+            ),
+            child: Slider(
+              value: _sliderVal,
+              min: 5.0,
+              max: 10.0,
+              divisions: 50,
+              onChanged: (v) {
+                setState(() => _sliderVal = v);
+                p.setTargetCGPA(v);
+              },
+            ),
           ),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: _AppTheme.surfaceElevated,
+              color: _AppTheme.surfaceElevated(isDark),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                  color: reqSGPA > 10
-                      ? _AppTheme.red.withOpacity(0.4)
-                      : _AppTheme.green.withOpacity(0.3)),
+                color: reqSGPA > 10
+                    ? _AppTheme.red.withOpacity(0.4)
+                    : _AppTheme.green.withOpacity(0.3),
+              ),
             ),
             child: Row(
               children: [
@@ -1542,17 +1524,15 @@ class _TargetCGPACardState extends State<_TargetCGPACard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Required SGPA this semester',
-                          style: const TextStyle(
-                              color: _AppTheme.textSecondary,
+                          style: TextStyle(
+                              color: _AppTheme.textSecondary(isDark),
                               fontSize: 11)),
                       Text(
                         reqSGPA > 10
                             ? 'Not achievable (need ${reqSGPA.toStringAsFixed(2)} > 10)'
                             : reqSGPA.toStringAsFixed(2),
                         style: TextStyle(
-                          color: reqSGPA > 10
-                              ? _AppTheme.red
-                              : _AppTheme.green,
+                          color: reqSGPA > 10 ? _AppTheme.red : _AppTheme.green,
                           fontWeight: FontWeight.w700,
                           fontSize: 20,
                         ),
@@ -1565,12 +1545,14 @@ class _TargetCGPACardState extends State<_TargetCGPACard> {
           ),
           if (reqSGPA <= 10 && cgpaPreds.isNotEmpty) ...[
             const SizedBox(height: 12),
-            const Text('Suggested Marks to Achieve Target',
+            Text('Suggested Marks to Achieve Target',
                 style: TextStyle(
-                    color: _AppTheme.textSecondary, fontSize: 12)),
+                    color: _AppTheme.textSecondary(isDark), fontSize: 12)),
             const SizedBox(height: 8),
             ...cgpaPreds.map((pred) => _PredictionRow(
-                prediction: pred, config: p.gradingConfig)),
+                prediction: pred,
+                config: p.gradingConfig,
+                isDark: isDark)),
           ],
         ],
       ),
@@ -1581,7 +1563,9 @@ class _TargetCGPACardState extends State<_TargetCGPACard> {
 class _PredictionRow extends StatelessWidget {
   final SubjectPrediction prediction;
   final GradingConfig config;
-  const _PredictionRow({required this.prediction, required this.config});
+  final bool isDark;
+  const _PredictionRow(
+      {required this.prediction, required this.config, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
@@ -1593,12 +1577,13 @@ class _PredictionRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _AppTheme.surfaceElevated,
+        color: _AppTheme.surfaceElevated(isDark),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-            color: p.isAchievable
-                ? _AppTheme.border
-                : _AppTheme.red.withOpacity(0.4)),
+          color: p.isAchievable
+              ? _AppTheme.border(isDark)
+              : _AppTheme.red.withOpacity(0.4),
+        ),
       ),
       child: Row(
         children: [
@@ -1607,14 +1592,14 @@ class _PredictionRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(p.subject.name,
-                    style: const TextStyle(
-                        color: _AppTheme.textPrimary,
+                    style: TextStyle(
+                        color: _AppTheme.textPrimary(isDark),
                         fontWeight: FontWeight.w600,
                         fontSize: 13)),
                 const SizedBox(height: 2),
                 Text(p.insight,
-                    style: const TextStyle(
-                        color: _AppTheme.textSecondary, fontSize: 11)),
+                    style: TextStyle(
+                        color: _AppTheme.textSecondary(isDark), fontSize: 11)),
               ],
             ),
           ),
@@ -1622,17 +1607,13 @@ class _PredictionRow extends StatelessWidget {
           Column(
             children: [
               Text(
-                p.isAchievable
-                    ? '${p.requiredEndSemMarks.toStringAsFixed(1)}'
-                    : 'N/A',
+                p.isAchievable ? p.requiredEndSemMarks.toStringAsFixed(1) : 'N/A',
                 style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18),
+                    color: color, fontWeight: FontWeight.w800, fontSize: 18),
               ),
               Text('/${config.endSemMax.toStringAsFixed(0)}',
-                  style: const TextStyle(
-                      color: _AppTheme.textSecondary, fontSize: 10)),
+                  style: TextStyle(
+                      color: _AppTheme.textSecondary(isDark), fontSize: 10)),
             ],
           ),
           const SizedBox(width: 8),
@@ -1641,7 +1622,7 @@ class _PredictionRow extends StatelessWidget {
             height: 36,
             child: CircularProgressIndicator(
               value: p.isAchievable ? pct.clamp(0.0, 1.0) : 1.0,
-              backgroundColor: _AppTheme.border,
+              backgroundColor: _AppTheme.border(isDark),
               valueColor: AlwaysStoppedAnimation<Color>(color),
               strokeWidth: 3.5,
             ),
@@ -1657,38 +1638,41 @@ class _PredictionRow extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _InsightsTab extends StatelessWidget {
-  const _InsightsTab();
+  final bool isDark;
+  const _InsightsTab({required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     return Consumer<ResultPredictionProvider>(
       builder: (context, provider, _) {
         final insights = _generateInsights(provider);
-        final results = provider.subjectResults.whereType<SubjectResult>().toList();
+        final results =
+        provider.subjectResults.whereType<SubjectResult>().toList();
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
           children: [
-            if (results.isNotEmpty) _GradeDistributionCard(results: results),
+            if (results.isNotEmpty)
+              _GradeDistributionCard(results: results, isDark: isDark),
             const SizedBox(height: 16),
             _SectionCard(
               title: '💡 Smart Suggestions',
               subtitle: 'Personalised insights based on your marks',
+              isDark: isDark,
               child: Column(
                 children: insights.isEmpty
                     ? [
-                  const Padding(
-                    padding: EdgeInsets.all(16),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
                     child: Text(
                       'Enter marks to see personalised insights.',
-                      style: TextStyle(color: _AppTheme.textSecondary),
+                      style: TextStyle(
+                          color: _AppTheme.textSecondary(isDark)),
                       textAlign: TextAlign.center,
                     ),
                   )
                 ]
-                    : insights
-                    .map((i) => _InsightTile(insight: i))
-                    .toList(),
+                    : insights.map((i) => _InsightTile(insight: i)).toList(),
               ),
             ),
           ],
@@ -1706,7 +1690,6 @@ class _InsightsTab extends StatelessWidget {
 
     if (results.isEmpty) return insights;
 
-    // SGPA overview
     if (sgpa != null) {
       if (sgpa >= 9.0) {
         insights.add(_Insight(
@@ -1726,7 +1709,6 @@ class _InsightsTab extends StatelessWidget {
       }
     }
 
-    // Failing subjects
     final failing = results.where((r) => !r.isPassing).toList();
     for (final f in failing) {
       insights.add(_Insight(
@@ -1735,20 +1717,15 @@ class _InsightsTab extends StatelessWidget {
           color: _AppTheme.red));
     }
 
-    // Best subject
     if (results.length > 1) {
-      final best = results.reduce((a, b) =>
-      a.totalMarks > b.totalMarks ? a : b);
+      final best = results.reduce((a, b) => a.totalMarks > b.totalMarks ? a : b);
       insights.add(_Insight(
           icon: '⭐',
           text: '${best.subject.name} is your strongest subject at ${best.totalMarks.toStringAsFixed(1)}/100 (${best.grade} grade).',
           color: _AppTheme.green));
     }
 
-    // High credit subjects not at full potential
-    final highCredit = provider.subjects
-        .where((s) => s.credits >= 4)
-        .toList();
+    final highCredit = provider.subjects.where((s) => s.credits >= 4).toList();
     for (final s in highCredit) {
       final r = results.firstWhere((r) => r.subject.id == s.id,
           orElse: () => results.first);
@@ -1760,10 +1737,10 @@ class _InsightsTab extends StatelessWidget {
       }
     }
 
-    // Near-grade boundary subjects
     for (final r in results) {
-      final currentBand = config.gradeScales
-          .firstWhere((g) => g.label == r.grade, orElse: () => config.gradeScales.last);
+      final currentBand = config.gradeScales.firstWhere(
+              (g) => g.label == r.grade,
+          orElse: () => config.gradeScales.last);
       final nextBandIdx = config.gradeScales.indexOf(currentBand) - 1;
       if (nextBandIdx >= 0) {
         final nextBand = config.gradeScales[nextBandIdx];
@@ -1771,8 +1748,7 @@ class _InsightsTab extends StatelessWidget {
         if (gap > 0 && gap <= 5) {
           insights.add(_Insight(
               icon: '📈',
-              text:
-              '${r.subject.name} is ${gap.toStringAsFixed(1)} marks away from ${nextBand.label} grade!',
+              text: '${r.subject.name} is ${gap.toStringAsFixed(1)} marks away from ${nextBand.label} grade!',
               color: _AppTheme.accentLight));
         }
       }
@@ -1821,11 +1797,12 @@ class _InsightTile extends StatelessWidget {
 
 class _GradeDistributionCard extends StatelessWidget {
   final List<SubjectResult> results;
-  const _GradeDistributionCard({required this.results});
+  final bool isDark;
+  const _GradeDistributionCard(
+      {required this.results, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
-    // Count grades
     final Map<String, int> dist = {};
     for (final r in results) {
       dist[r.grade] = (dist[r.grade] ?? 0) + 1;
@@ -1834,6 +1811,7 @@ class _GradeDistributionCard extends StatelessWidget {
     return _SectionCard(
       title: '📊 Grade Distribution',
       subtitle: 'Current semester overview',
+      isDark: isDark,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: dist.entries.map((e) {
@@ -1857,8 +1835,8 @@ class _GradeDistributionCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text('${e.value} subj',
-                  style: const TextStyle(
-                      color: _AppTheme.textSecondary, fontSize: 10)),
+                  style: TextStyle(
+                      color: _AppTheme.textSecondary(isDark), fontSize: 10)),
             ],
           );
         }).toList(),
@@ -1875,32 +1853,58 @@ class _SectionCard extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget child;
+  final bool isDark;
 
-  const _SectionCard(
-      {required this.title, this.subtitle, required this.child});
+  const _SectionCard({
+    required this.title,
+    this.subtitle,
+    required this.child,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _AppTheme.surface,
+        color: _AppTheme.surface(isDark),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _AppTheme.border),
+        border: Border.all(color: _AppTheme.border(isDark)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style: const TextStyle(
-                  color: _AppTheme.textPrimary,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15)),
+          // Red left accent bar on section title
+          Row(
+            children: [
+              Container(
+                width: 3,
+                height: 16,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFE53935), Color(0xFFFF6B6B)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Text(title,
+                  style: TextStyle(
+                      color: _AppTheme.textPrimary(isDark),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15)),
+            ],
+          ),
           if (subtitle != null) ...[
             const SizedBox(height: 2),
-            Text(subtitle!,
-                style: const TextStyle(
-                    color: _AppTheme.textSecondary, fontSize: 12)),
+            Padding(
+              padding: const EdgeInsets.only(left: 11),
+              child: Text(subtitle!,
+                  style: TextStyle(
+                      color: _AppTheme.textSecondary(isDark), fontSize: 12)),
+            ),
           ],
           const SizedBox(height: 14),
           child,
@@ -1916,6 +1920,7 @@ class _MarkInput extends StatelessWidget {
   final double maxVal;
   final bool isText;
   final bool enabled;
+  final bool isDark;
   final ValueChanged<String> onChanged;
 
   const _MarkInput({
@@ -1924,6 +1929,7 @@ class _MarkInput extends StatelessWidget {
     this.maxVal = 100,
     this.isText = false,
     this.enabled = true,
+    required this.isDark,
     required this.onChanged,
   });
 
@@ -1937,18 +1943,17 @@ class _MarkInput extends StatelessWidget {
           : const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: isText
           ? []
-          : [
-        FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
-      ],
-      style: const TextStyle(
-          color: _AppTheme.textPrimary,
+          : [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+      style: TextStyle(
+          color: _AppTheme.textPrimary(isDark),
           fontSize: 13,
           fontWeight: FontWeight.w500),
       decoration: InputDecoration(
         labelText: label,
         disabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: _AppTheme.border.withOpacity(0.4)),
+          borderSide:
+          BorderSide(color: _AppTheme.border(isDark).withOpacity(0.4)),
         ),
       ),
       onChanged: onChanged,
@@ -1959,14 +1964,15 @@ class _MarkInput extends StatelessWidget {
 class _SectionLabel extends StatelessWidget {
   final String text;
   final bool active;
-  const _SectionLabel(this.text, {required this.active});
+  final bool isDark;
+  const _SectionLabel(this.text, {required this.active, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     return Text(
       text,
       style: TextStyle(
-        color: active ? _AppTheme.accentLight : _AppTheme.textSecondary,
+        color: active ? _AppTheme.accentLight : _AppTheme.textSecondary(isDark),
         fontSize: 12,
         fontWeight: active ? FontWeight.w600 : FontWeight.normal,
       ),
@@ -1995,18 +2001,19 @@ class _GradeBadge extends StatelessWidget {
   }
 }
 
-/// Slider widget for quick end-sem mark simulation.
 class _EndSemSlider extends StatefulWidget {
   final Subject subject;
   final GradingConfig config;
   final ResultPredictionProvider provider;
   final TextEditingController endSemController;
+  final bool isDark;
 
   const _EndSemSlider({
     required this.subject,
     required this.config,
     required this.provider,
     required this.endSemController,
+    required this.isDark,
   });
 
   @override
@@ -2026,14 +2033,15 @@ class _EndSemSliderState extends State<_EndSemSlider> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = widget.isDark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Text('🎚 Quick End-Sem Adjuster',
+            Text('🎚 Quick End-Sem Adjuster',
                 style: TextStyle(
-                    color: _AppTheme.textSecondary, fontSize: 11)),
+                    color: _AppTheme.textSecondary(isDark), fontSize: 11)),
             const Spacer(),
             Text(
               '${_val.toStringAsFixed(1)} / ${widget.config.endSemMax.toStringAsFixed(0)}',
@@ -2044,55 +2052,26 @@ class _EndSemSliderState extends State<_EndSemSlider> {
             ),
           ],
         ),
-        Slider(
-          value: _val,
-          min: 0,
-          max: widget.config.endSemMax,
-          divisions: (widget.config.endSemMax * 2).toInt(),
-          activeColor: _AppTheme.accent,
-          inactiveColor: _AppTheme.border,
-          onChanged: (v) {
-            setState(() => _val = v);
-            widget.endSemController.text = v.toStringAsFixed(1);
-            widget.provider.updateExpectedEndSemMarks(widget.subject.id, v);
-          },
+        SliderTheme(
+          data: SliderThemeData(
+            activeTrackColor: _AppTheme.accent,
+            inactiveTrackColor: _AppTheme.border(isDark),
+            thumbColor: _AppTheme.accent,
+            overlayColor: _AppTheme.accent.withOpacity(0.2),
+          ),
+          child: Slider(
+            value: _val,
+            min: 0,
+            max: widget.config.endSemMax,
+            divisions: (widget.config.endSemMax * 2).toInt(),
+            onChanged: (v) {
+              setState(() => _val = v);
+              widget.endSemController.text = v.toStringAsFixed(1);
+              widget.provider.updateExpectedEndSemMarks(widget.subject.id, v);
+            },
+          ),
         ),
       ],
     );
   }
 }
-
-// =============================================================================
-// HOW TO USE IN YOUR APP
-// =============================================================================
-//
-// 1. Add to pubspec.yaml:
-//    dependencies:
-//      provider: ^6.1.2
-//      shared_preferences: ^2.2.3
-//
-// 2. Wrap your MaterialApp or the relevant subtree in main.dart:
-//
-//    void main() {
-//      runApp(
-//        MultiProvider(
-//          providers: [
-//            ChangeNotifierProvider(create: (_) => ResultPredictionProvider()),
-//          ],
-//          child: const MyApp(),
-//        ),
-//      );
-//    }
-//
-//    NOTE: If you keep the ChangeNotifierProvider INSIDE ResultScreen
-//    (as this file does for self-contained operation), you do NOT need the
-//    global provider above. The screen manages its own state.
-//
-// 3. Navigate from your HomeScreen:
-//
-//    Navigator.push(
-//      context,
-//      MaterialPageRoute(builder: (context) => const ResultScreen()),
-//    );
-//
-// =============================================================================
