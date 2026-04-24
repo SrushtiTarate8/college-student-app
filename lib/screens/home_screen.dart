@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
 import 'attendance_screen.dart';
-import 'planner_screen.dart';
+import 'studyplanner_screen.dart';
 import 'notes_screen.dart';
 import 'result_screen.dart';
 import 'theme_provider.dart';
@@ -27,14 +25,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with TickerProviderStateMixin, RouteAware {
+    with TickerProviderStateMixin {
   late AnimationController _headerController;
   late AnimationController _cardsController;
   late List<AnimationController> _cardControllers;
-
-  // Live attendance percentage loaded from SharedPreferences
-  double _attendancePct = 0.0;
-  bool   _attLoaded     = false;
 
   @override
   void initState() {
@@ -44,9 +38,10 @@ class _HomeScreenState extends State<HomeScreen>
         vsync: this, duration: const Duration(milliseconds: 800));
     _cardsController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 900));
+
     _cardControllers = List.generate(
       4,
-      (i) => AnimationController(
+          (i) => AnimationController(
           vsync: this, duration: const Duration(milliseconds: 500)),
     );
 
@@ -59,43 +54,15 @@ class _HomeScreenState extends State<HomeScreen>
         });
       }
     });
-
-    _loadAttendance();
   }
-
-  /// Reads subjects from the same SharedPreferences key used by AttendanceScreen
-  /// and computes the overall attendance percentage.
-  Future<void> _loadAttendance() async {
-    try {
-      final p  = await SharedPreferences.getInstance();
-      final sr = p.getString('att_subjects');
-      if (sr == null) { setState(() => _attLoaded = true); return; }
-
-      final list = jsonDecode(sr) as List;
-      int totalAtt = 0, totalLec = 0;
-      for (final e in list) {
-        final att  = (e['attended'] as int?) ?? 0;
-        final miss = (e['missed']  as int?) ?? 0;
-        totalAtt += att;
-        totalLec += att + miss;
-      }
-      setState(() {
-        _attendancePct = totalLec == 0 ? 0 : totalAtt / totalLec * 100;
-        _attLoaded     = true;
-      });
-    } catch (_) {
-      setState(() => _attLoaded = true);
-    }
-  }
-
-  String get _attendanceLabel =>
-      _attLoaded ? '${_attendancePct.toStringAsFixed(1)}%' : '...';
 
   @override
   void dispose() {
     _headerController.dispose();
     _cardsController.dispose();
-    for (var c in _cardControllers) c.dispose();
+    for (var c in _cardControllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -106,26 +73,24 @@ class _HomeScreenState extends State<HomeScreen>
     return "Good Evening";
   }
 
-  /// Navigate to a screen and reload attendance when we come back.
-  Future<void> _pushAndRefresh(Widget screen) async {
-    await Navigator.push(context, _route(screen));
-    _loadAttendance(); // refresh after returning from AttendanceScreen
-  }
-
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
 
-    final bgColor      = isDark ? const Color(0xFF0F0E17) : const Color(0xFFF5F4FB);
-    final cardBg       = isDark ? const Color(0xFF1A1A2E) : Colors.white;
-    final primaryText  = isDark ? Colors.white : const Color(0xFF1A1535);
+    // Color system
+    final bgColor = isDark ? const Color(0xFF0F0E17) : const Color(0xFFF5F4FB);
+    final cardBg = isDark ? const Color(0xFF1A1A2E) : Colors.white;
+    final primaryText = isDark ? Colors.white : const Color(0xFF1A1535);
     final secondaryText = isDark
         ? Colors.white.withOpacity(0.55)
         : const Color(0xFF1A1535).withOpacity(0.5);
-    final borderColor  = isDark
+    final borderColor = isDark
         ? Colors.white.withOpacity(0.06)
         : const Color(0xFF6C63FF).withOpacity(0.08);
+    final dividerColor = isDark
+        ? Colors.white.withOpacity(0.2)
+        : const Color(0xFF6C63FF).withOpacity(0.15);
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -133,9 +98,11 @@ class _HomeScreenState extends State<HomeScreen>
         children: [
           // Decorative blobs
           Positioned(
-            top: -100, right: -80,
+            top: -100,
+            right: -80,
             child: Container(
-              width: 300, height: 300,
+              width: 300,
+              height: 300,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: RadialGradient(colors: [
@@ -146,9 +113,11 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
           Positioned(
-            top: 80, left: -60,
+            top: 80,
+            left: -60,
             child: Container(
-              width: 180, height: 180,
+              width: 180,
+              height: 180,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: RadialGradient(colors: [
@@ -163,7 +132,7 @@ class _HomeScreenState extends State<HomeScreen>
             child: CustomScrollView(
               physics: const BouncingScrollPhysics(),
               slivers: [
-                // ─── AppBar ────────────────────────────────────────────────
+                // ─── AppBar ───────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 20, 20, 0),
@@ -172,6 +141,7 @@ class _HomeScreenState extends State<HomeScreen>
                           parent: _headerController, curve: Curves.easeOut),
                       child: Row(
                         children: [
+                          // App logo
                           Container(
                             padding: const EdgeInsets.all(9),
                             decoration: BoxDecoration(
@@ -181,43 +151,58 @@ class _HomeScreenState extends State<HomeScreen>
                                 end: Alignment.bottomRight,
                               ),
                               borderRadius: BorderRadius.circular(14),
-                              boxShadow: [BoxShadow(
-                                color: const Color(0xFF6C63FF).withOpacity(0.3),
-                                blurRadius: 12, offset: const Offset(0, 4),
-                              )],
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF6C63FF).withOpacity(0.3),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                             ),
                             child: const Icon(Icons.school_rounded,
                                 color: Colors.white, size: 22),
                           ),
                           const SizedBox(width: 10),
-                          Text("CampusMate", style: TextStyle(
-                            color: primaryText, fontSize: 20,
-                            fontWeight: FontWeight.w800, letterSpacing: 0.3,
-                          )),
+                          Text(
+                            "CampusMate",
+                            style: TextStyle(
+                              color: primaryText,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
                           const Spacer(),
 
-                          // Dark mode toggle
+                          // ── Dark Mode Toggle ──
                           GestureDetector(
                             onTap: () => themeProvider.toggleTheme(),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 300),
-                              width: 52, height: 28,
+                              width: 52,
+                              height: 28,
                               padding: const EdgeInsets.all(3),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(20),
                                 gradient: isDark
                                     ? const LinearGradient(
-                                        colors: [Color(0xFF6C63FF), Color(0xFF9B59B6)])
-                                    : LinearGradient(colors: [
-                                        Colors.grey.shade300,
-                                        Colors.grey.shade200,
-                                      ]),
-                                boxShadow: [BoxShadow(
-                                  color: isDark
-                                      ? const Color(0xFF6C63FF).withOpacity(0.35)
-                                      : Colors.black.withOpacity(0.1),
-                                  blurRadius: 8, offset: const Offset(0, 2),
-                                )],
+                                  colors: [Color(0xFF6C63FF), Color(0xFF9B59B6)],
+                                )
+                                    : LinearGradient(
+                                  colors: [
+                                    Colors.grey.shade300,
+                                    Colors.grey.shade200,
+                                  ],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: isDark
+                                        ? const Color(0xFF6C63FF).withOpacity(0.35)
+                                        : Colors.black.withOpacity(0.1),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
                               child: AnimatedAlign(
                                 duration: const Duration(milliseconds: 300),
@@ -226,18 +211,23 @@ class _HomeScreenState extends State<HomeScreen>
                                     ? Alignment.centerRight
                                     : Alignment.centerLeft,
                                 child: Container(
-                                  width: 22, height: 22,
+                                  width: 22,
+                                  height: 22,
                                   decoration: const BoxDecoration(
-                                      color: Colors.white, shape: BoxShape.circle),
-                                  child: Center(child: Icon(
-                                    isDark
-                                        ? Icons.dark_mode_rounded
-                                        : Icons.wb_sunny_rounded,
-                                    color: isDark
-                                        ? const Color(0xFF6C63FF)
-                                        : Colors.amber,
-                                    size: 13,
-                                  )),
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Center(
+                                    child: Icon(
+                                      isDark
+                                          ? Icons.dark_mode_rounded
+                                          : Icons.wb_sunny_rounded,
+                                      color: isDark
+                                          ? const Color(0xFF6C63FF)
+                                          : Colors.amber,
+                                      size: 13,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -245,20 +235,21 @@ class _HomeScreenState extends State<HomeScreen>
 
                           const SizedBox(width: 12),
 
-                          // Profile avatar
+                          // Profile Avatar
                           GestureDetector(
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (_) => ProfileScreen(
-                                  studentName:   widget.studentName,
+                                  studentName: widget.studentName,
                                   studentBranch: widget.studentBranch,
-                                  studentEmail:  widget.studentEmail,
+                                  studentEmail: widget.studentEmail,
                                 ),
                               ),
                             ),
                             child: Container(
-                              width: 44, height: 44,
+                              width: 44,
+                              height: 44,
                               decoration: BoxDecoration(
                                 gradient: const LinearGradient(
                                   colors: [Color(0xFF6C63FF), Color(0xFF9B59B6)],
@@ -266,20 +257,26 @@ class _HomeScreenState extends State<HomeScreen>
                                   end: Alignment.bottomRight,
                                 ),
                                 shape: BoxShape.circle,
-                                boxShadow: [BoxShadow(
-                                  color: const Color(0xFF6C63FF).withOpacity(0.4),
-                                  blurRadius: 12, offset: const Offset(0, 4),
-                                )],
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF6C63FF).withOpacity(0.4),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  )
+                                ],
                               ),
-                              child: Center(child: Text(
-                                widget.studentName.isNotEmpty
-                                    ? widget.studentName[0].toUpperCase()
-                                    : "S",
-                                style: const TextStyle(
+                              child: Center(
+                                child: Text(
+                                  widget.studentName.isNotEmpty
+                                      ? widget.studentName[0].toUpperCase()
+                                      : "S",
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 18,
-                                    fontWeight: FontWeight.w700),
-                              )),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -288,31 +285,46 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
 
-                // ─── Greeting ──────────────────────────────────────────────
+                // ─── Greeting ─────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
                     child: SlideTransition(
                       position: Tween<Offset>(
-                              begin: const Offset(0, 0.2), end: Offset.zero)
+                          begin: const Offset(0, 0.2), end: Offset.zero)
                           .animate(CurvedAnimation(
-                              parent: _headerController, curve: Curves.easeOut)),
+                          parent: _headerController,
+                          curve: Curves.easeOut)),
                       child: FadeTransition(
                         opacity: _headerController,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text("$_greeting,", style: TextStyle(
-                                color: secondaryText, fontSize: 16,
-                                fontWeight: FontWeight.w400)),
+                            Text(
+                              "$_greeting,",
+                              style: TextStyle(
+                                color: secondaryText,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
                             const SizedBox(height: 4),
-                            Row(children: [
-                              Text(widget.studentName, style: TextStyle(
-                                  color: primaryText, fontSize: 30,
-                                  fontWeight: FontWeight.w800, letterSpacing: -0.5)),
-                              const SizedBox(width: 8),
-                              const Text("👋", style: TextStyle(fontSize: 26)),
-                            ]),
+                            Row(
+                              children: [
+                                Text(
+                                  widget.studentName,
+                                  style: TextStyle(
+                                    color: primaryText,
+                                    fontSize: 30,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Text("👋",
+                                    style: TextStyle(fontSize: 26)),
+                              ],
+                            ),
                             const SizedBox(height: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -321,11 +333,14 @@ class _HomeScreenState extends State<HomeScreen>
                                 color: const Color(0xFF6C63FF).withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(20),
                               ),
-                              child: Text(widget.studentBranch,
-                                  style: const TextStyle(
-                                      color: Color(0xFF6C63FF),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600)),
+                              child: Text(
+                                widget.studentBranch,
+                                style: const TextStyle(
+                                  color: Color(0xFF6C63FF),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -334,7 +349,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
 
-                // ─── Quick Stats ───────────────────────────────────────────
+                // ─── Quick Stats ──────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
@@ -350,44 +365,66 @@ class _HomeScreenState extends State<HomeScreen>
                             end: Alignment.bottomRight,
                           ),
                           borderRadius: BorderRadius.circular(22),
-                          boxShadow: [BoxShadow(
-                            color: const Color(0xFF6C63FF).withOpacity(0.35),
-                            blurRadius: 24, offset: const Offset(0, 10),
-                          )],
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF6C63FF).withOpacity(0.35),
+                              blurRadius: 24,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
                         ),
-                        child: Row(children: [
-                          Expanded(child: _statItem(
-                            // ← live value
-                            _attendanceLabel, "Attendance", Icons.bar_chart_rounded)),
-                          Container(width: 1, height: 40,
-                              color: Colors.white.withOpacity(0.2)),
-                          Expanded(child: _statItem(
-                              "4", "Tasks Due", Icons.task_alt_rounded)),
-                          Container(width: 1, height: 40,
-                              color: Colors.white.withOpacity(0.2)),
-                          Expanded(child: _statItem(
-                              "12", "Notes", Icons.note_rounded)),
-                        ]),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _statItem(
+                                  "85%", "Attendance", Icons.bar_chart_rounded),
+                            ),
+                            Container(
+                              width: 1,
+                              height: 40,
+                              color: Colors.white.withOpacity(0.2),
+                            ),
+                            Expanded(
+                              child: _statItem(
+                                  "4", "Tasks Due", Icons.task_alt_rounded),
+                            ),
+                            Container(
+                              width: 1,
+                              height: 40,
+                              color: Colors.white.withOpacity(0.2),
+                            ),
+                            Expanded(
+                              child: _statItem(
+                                  "12", "Notes", Icons.note_rounded),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
 
-                // ─── Section title ─────────────────────────────────────────
+                // ─── Section title ────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
                     child: FadeTransition(
                       opacity: CurvedAnimation(
                           parent: _cardsController, curve: Curves.easeOut),
-                      child: Text("Quick Access", style: TextStyle(
-                          color: primaryText, fontSize: 20,
-                          fontWeight: FontWeight.w800, letterSpacing: -0.2)),
+                      child: Text(
+                        "Quick Access",
+                        style: TextStyle(
+                          color: primaryText,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
                     ),
                   ),
                 ),
 
-                // ─── Feature Cards Grid ────────────────────────────────────
+                // ─── Feature Cards Grid ───────────────────────────
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
                   sliver: SliverGrid(
@@ -397,48 +434,72 @@ class _HomeScreenState extends State<HomeScreen>
                         title: "Attendance",
                         subtitle: "Track your presence",
                         icon: Icons.bar_chart_rounded,
-                        gradientColors: const [Color(0xFF6C63FF), Color(0xFF9B59B6)],
-                        // ← live value on the card badge too
-                        badgeText: _attendanceLabel,
-                        cardBg: cardBg, borderColor: borderColor,
-                        primaryText: primaryText, secondaryText: secondaryText,
-                        onTap: () => _pushAndRefresh(const AttendanceScreen()),
+                        gradientColors: const [
+                          Color(0xFF6C63FF),
+                          Color(0xFF9B59B6)
+                        ],
+                        badgeText: "85%",
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
+                        onTap: () => Navigator.push(
+                            context, _route(const AttendanceScreen())),
                       ),
                       _buildCard(
                         index: 1,
                         title: "Study Planner",
                         subtitle: "Plan your sessions",
                         icon: Icons.calendar_today_rounded,
-                        gradientColors: const [Color(0xFF43E97B), Color(0xFF38F9D7)],
+                        gradientColors: const [
+                          Color(0xFF43E97B),
+                          Color(0xFF38F9D7)
+                        ],
                         badgeText: "4 tasks",
-                        cardBg: cardBg, borderColor: borderColor,
-                        primaryText: primaryText, secondaryText: secondaryText,
-                        onTap: () => _pushAndRefresh(PlannerHomeScreen()),
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
+                        onTap: () => Navigator.push(
+                            context, _route(StudyPlannerScreen())),
                       ),
                       _buildCard(
                         index: 2,
                         title: "Notes",
                         subtitle: "Your study notes",
                         icon: Icons.sticky_note_2_rounded,
-                        gradientColors: const [Color(0xFFFFA751), Color(0xFFFFE259)],
+                        gradientColors: const [
+                          Color(0xFFFFA751),
+                          Color(0xFFFFE259)
+                        ],
                         badgeText: "12 notes",
-                        cardBg: cardBg, borderColor: borderColor,
-                        primaryText: primaryText, secondaryText: secondaryText,
-                        onTap: () => _pushAndRefresh(const NotesScreen()),
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
+                        onTap: () => Navigator.push(
+                            context, _route(const NotesScreen())),
                       ),
                       _buildCard(
                         index: 3,
                         title: "Result Predictor",
                         subtitle: "Predict your score",
                         icon: Icons.auto_graph_rounded,
-                        gradientColors: const [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
+                        gradientColors: const [
+                          Color(0xFFFF6B6B),
+                          Color(0xFFFF8E53)
+                        ],
                         badgeText: "CGPA",
-                        cardBg: cardBg, borderColor: borderColor,
-                        primaryText: primaryText, secondaryText: secondaryText,
-                        onTap: () => _pushAndRefresh(const ResultScreen()),
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
+                        onTap: () => Navigator.push(
+                            context, _route(const ResultScreen())),
                       ),
                     ]),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 2,
                       crossAxisSpacing: 16,
                       mainAxisSpacing: 16,
@@ -455,15 +516,28 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _statItem(String value, String label, IconData icon) {
-    return Column(children: [
-      Icon(icon, color: Colors.white.withOpacity(0.85), size: 20),
-      const SizedBox(height: 6),
-      Text(value, style: const TextStyle(
-          color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
-      const SizedBox(height: 2),
-      Text(label, style: TextStyle(
-          color: Colors.white.withOpacity(0.65), fontSize: 11)),
-    ]);
+    return Column(
+      children: [
+        Icon(icon, color: Colors.white.withOpacity(0.85), size: 20),
+        const SizedBox(height: 6),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.65),
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildCard({
@@ -487,8 +561,8 @@ class _HomeScreenState extends State<HomeScreen>
         return FadeTransition(
           opacity: _cardControllers[index],
           child: SlideTransition(
-            position: Tween<Offset>(
-                    begin: const Offset(0, 0.25), end: Offset.zero)
+            position:
+            Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero)
                 .animate(anim),
             child: child,
           ),
@@ -501,73 +575,108 @@ class _HomeScreenState extends State<HomeScreen>
             color: cardBg,
             borderRadius: BorderRadius.circular(22),
             border: Border.all(color: borderColor, width: 1),
-            boxShadow: [BoxShadow(
-              color: gradientColors[0].withOpacity(0.08),
-              blurRadius: 20, offset: const Offset(0, 6),
-            )],
+            boxShadow: [
+              BoxShadow(
+                color: gradientColors[0].withOpacity(0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
-          child: Stack(children: [
-            Positioned(
-              top: -20, right: -20,
-              child: Container(
-                width: 100, height: 100,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(colors: [
-                    gradientColors[0].withOpacity(0.12),
-                    Colors.transparent,
-                  ]),
+          child: Stack(
+            children: [
+              // Gradient blob top-right
+              Positioned(
+                top: -20,
+                right: -20,
+                child: Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        gradientColors[0].withOpacity(0.12),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Icon container
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
                           colors: gradientColors,
                           begin: Alignment.topLeft,
-                          end: Alignment.bottomRight),
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [BoxShadow(
-                        color: gradientColors[0].withOpacity(0.35),
-                        blurRadius: 12, offset: const Offset(0, 4),
-                      )],
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: gradientColors[0].withOpacity(0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 24),
                     ),
-                    child: Icon(icon, color: Colors.white, size: 24),
-                  ),
-                  const Spacer(),
-                  Text(title, style: TextStyle(
-                      color: primaryText, fontSize: 15,
-                      fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 3),
-                  Text(subtitle, style: TextStyle(
-                      color: secondaryText, fontSize: 11.5)),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [
-                        gradientColors[0].withOpacity(0.15),
-                        gradientColors[1].withOpacity(0.1),
-                      ]),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                          color: gradientColors[0].withOpacity(0.3), width: 1),
+                    const Spacer(),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: primaryText,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    child: Text(badgeText, style: TextStyle(
-                        color: gradientColors[0], fontSize: 11,
-                        fontWeight: FontWeight.w600)),
-                  ),
-                ],
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: secondaryText,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            gradientColors[0].withOpacity(0.15),
+                            gradientColors[1].withOpacity(0.1),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: gradientColors[0].withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        badgeText,
+                        style: TextStyle(
+                          color: gradientColors[0],
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ),
       ),
     );
@@ -579,8 +688,10 @@ class _HomeScreenState extends State<HomeScreen>
     transitionsBuilder: (_, anim, __, child) => FadeTransition(
       opacity: anim,
       child: SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0.05, 0), end: Offset.zero)
-            .animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
+        position:
+        Tween<Offset>(begin: const Offset(0.05, 0), end: Offset.zero)
+            .animate(
+            CurvedAnimation(parent: anim, curve: Curves.easeOut)),
         child: child,
       ),
     ),

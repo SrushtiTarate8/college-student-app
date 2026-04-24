@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 
-class AssignmentScreen extends StatelessWidget {
-  const AssignmentScreen({super.key});
+class ResultScreen extends StatelessWidget {
+  const ResultScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Assignments"),
+        title: const Text("Result"),
       ),
       body: const Center(
-        child: Text("Assignment Screen"),
+        child: Text("Result Predictor"),
       ),
     );
   }
