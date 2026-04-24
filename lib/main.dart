@@ -1,32 +1,43 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'screens/theme_provider.dart';
-import 'screens/login_screen.dart';
+import 'package:flutter/services.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+//import 'planner_screen.dart';
+import 'screens/planner_screen.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest_all.dart' as tzdata;
 
-void main() {
-  runApp(
-    ChangeNotifierProvider(
-      create: (_) => ThemeProvider(),
-      child: const CampusMateApp(),
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  tzdata.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+
+  await Hive.initFlutter();
+  await Hive.openBox<List>('plannerBox');
+
+  await initNotifications();
+
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
     ),
   );
+
+  runApp(const MyApp());
 }
 
-class CampusMateApp extends StatelessWidget {
-  const CampusMateApp({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
     return MaterialApp(
-      title: 'CampusMate',
       debugShowCheckedModeBanner: false,
-      theme: ThemeProvider.lightTheme,
-      darkTheme: ThemeProvider.darkTheme,
-      themeMode:
-      themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      home: const LoginScreen(),
+      title: 'Student Planner',
+      theme: ThemeData(
+        primarySwatch: Colors.teal,
+      ),
+      home: const PlannerHomeScreen(),
     );
   }
 }
-
