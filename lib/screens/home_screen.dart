@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
 import 'attendance_screen.dart';
-import 'studyplanner_screen.dart';
+import 'planner_screen.dart';
 import 'notes_screen.dart';
 import 'result_screen.dart';
 import 'theme_provider.dart';
@@ -461,7 +461,7 @@ class _HomeScreenState extends State<HomeScreen>
                         primaryText: primaryText,
                         secondaryText: secondaryText,
                         onTap: () => Navigator.push(
-                            context, _route(StudyPlannerScreen())),
+                            context, _route(PlannerHomeScreen())),
                       ),
                       _buildCard(
                         index: 2,
