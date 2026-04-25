@@ -5,6 +5,9 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'screens/planner_screen.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'screens/home_screen.dart';
+import 'package:provider/provider.dart';
+import 'screens/theme_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,7 +26,16 @@ void main() async {
     ),
   );
 
-  runApp(const MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => ThemeProvider(),
+        ),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -37,7 +49,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.teal,
       ),
-      home: const PlannerHomeScreen(),
+      home: HomeScreen(),
     );
   }
 }
