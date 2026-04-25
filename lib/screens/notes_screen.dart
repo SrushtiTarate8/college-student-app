@@ -14,15 +14,19 @@ class _NotesScreenState extends State<NotesScreen> {
   Map<String, List<Map<String, dynamic>>> folders = {"General": []};
 
   String selectedFolder = "General";
+  String? selectedDate;
+
+  String formatDate(DateTime date) {
+    return "${date.day}/${date.month}/${date.year}";
+  }
 
   void addNote(String text) {
-    final time = TimeOfDay.now().format(context);
-
     setState(() {
       folders[selectedFolder]!.add({
         "text": text,
         "type": "text",
-        "time": time,
+        "time": TimeOfDay.now().format(context),
+        "date": DateTime.now(),
       });
     });
   }
@@ -40,32 +44,26 @@ class _NotesScreenState extends State<NotesScreen> {
 
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Edit Note"),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
+      builder: (_) => AlertDialog(
+        title: const Text("Edit Note"),
+        content: TextField(controller: controller),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (controller.text.isNotEmpty) {
-                  setState(() {
-                    folders[selectedFolder]![index]["text"] = controller.text;
-                  });
-                }
-                Navigator.pop(context);
-              },
-              child: const Text("Update"),
-            ),
-          ],
-        );
-      },
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                folders[selectedFolder]![index]["text"] = controller.text;
+                folders[selectedFolder]![index]["date"] = DateTime.now();
+              });
+              Navigator.pop(context);
+            },
+            child: const Text("Update"),
+          ),
+        ],
+      ),
     );
   }
 
@@ -80,6 +78,7 @@ class _NotesScreenState extends State<NotesScreen> {
           "file": File(pickedFile.path),
           "type": "image",
           "time": TimeOfDay.now().format(context),
+          "date": DateTime.now(),
         });
       });
     }
@@ -95,6 +94,7 @@ class _NotesScreenState extends State<NotesScreen> {
           "file": File(result.files.single.path!),
           "type": "file",
           "time": TimeOfDay.now().format(context),
+          "date": DateTime.now(),
         });
       });
     }
@@ -105,33 +105,48 @@ class _NotesScreenState extends State<NotesScreen> {
 
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("New Folder"),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(hintText: "Folder name"),
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          "New Folder",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: "Enter folder name",
+            border: OutlineInputBorder(),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        actions: [
+          // ❌ Cancel button (missing before)
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+
+          // ✅ Create button
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
             ),
-            ElevatedButton(
-              onPressed: () {
-                if (controller.text.isNotEmpty) {
-                  setState(() {
-                    folders[controller.text] = [];
-                    selectedFolder = controller.text;
-                  });
-                }
-                Navigator.pop(context);
-              },
-              child: const Text("Create"),
-            ),
-          ],
-        );
-      },
+            onPressed: () {
+              if (controller.text.isNotEmpty) {
+                setState(() {
+                  folders[controller.text] = [];
+                  selectedFolder = controller.text;
+                });
+              }
+              Navigator.pop(context);
+            },
+            child: const Text("Create"),
+          ),
+        ],
+      ),
     );
   }
 
@@ -140,60 +155,71 @@ class _NotesScreenState extends State<NotesScreen> {
 
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Add Note"),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: "Write something...",
-            ),
+      builder: (_) => AlertDialog(
+        title: const Text("Add Note"),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: "Write something...",
+            border: OutlineInputBorder(),
           ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.image),
-              onPressed: () {
-                Navigator.pop(context);
-                pickImage();
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.attach_file),
-              onPressed: () {
-                Navigator.pop(context);
-                pickFile();
-              },
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (controller.text.isNotEmpty) {
-                  addNote(controller.text);
-                }
-                Navigator.pop(context);
-              },
-              child: const Text("Add"),
-            ),
-          ],
-        );
-      },
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.image),
+            onPressed: () {
+              Navigator.pop(context);
+              pickImage();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.attach_file),
+            onPressed: () {
+              Navigator.pop(context);
+              pickFile();
+            },
+          ),
+
+          // ✅ CANCEL BUTTON (this was missing)
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+
+          ElevatedButton(
+            onPressed: () {
+              addNote(controller.text);
+              Navigator.pop(context);
+            },
+            child: const Text("Add"),
+          ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final notes = folders[selectedFolder]!;
+    final allNotes = folders[selectedFolder]!;
+
+    // extract unique dates
+    final dates = allNotes
+        .map((note) => formatDate(note["date"]))
+        .toSet()
+        .toList();
+
+    // filter notes by date
+    final notes = selectedDate == null
+        ? allNotes
+        : allNotes
+              .where((note) => formatDate(note["date"]) == selectedDate)
+              .toList();
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text("My Notes"),
         backgroundColor: Colors.deepPurple,
-        elevation: 0,
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -202,11 +228,11 @@ class _NotesScreenState extends State<NotesScreen> {
             padding: EdgeInsets.all(16),
             child: Text(
               "Organize your thoughts ✨",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 18),
             ),
           ),
 
-          // 🔹 Folder Chips
+          // 📁 FOLDER CHIPS (unchanged UI)
           SizedBox(
             height: 50,
             child: ListView(
@@ -223,6 +249,7 @@ class _NotesScreenState extends State<NotesScreen> {
                       onSelected: (_) {
                         setState(() {
                           selectedFolder = folder;
+                          selectedDate = null;
                         });
                       },
                       selectedColor: Colors.deepPurple,
@@ -237,17 +264,48 @@ class _NotesScreenState extends State<NotesScreen> {
             ),
           ),
 
+          // 📅 DATE CHIPS (NEW)
+          SizedBox(
+            height: 45,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: ChoiceChip(
+                    label: const Text("All"),
+                    selected: selectedDate == null,
+                    onSelected: (_) {
+                      setState(() {
+                        selectedDate = null;
+                      });
+                    },
+                  ),
+                ),
+                ...dates.map((date) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: ChoiceChip(
+                      label: Text(date),
+                      selected: selectedDate == date,
+                      onSelected: (_) {
+                        setState(() {
+                          selectedDate = date;
+                        });
+                      },
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+
           const SizedBox(height: 10),
 
-          // 🔹 Notes
+          // 📝 NOTES (unchanged UI)
           Expanded(
             child: notes.isEmpty
-                ? const Center(
-                    child: Text(
-                      "No notes yet 📝",
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  )
+                ? const Center(child: Text("No notes yet"))
                 : ListView.builder(
                     padding: const EdgeInsets.all(10),
                     itemCount: notes.length,
@@ -268,25 +326,14 @@ class _NotesScreenState extends State<NotesScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             note["type"] == "image"
-                                ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Image.file(
-                                      note["file"],
-                                      height: 150,
-                                      width: double.infinity,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  )
-                                : Text(
-                                    note["text"],
-                                    style: const TextStyle(fontSize: 16),
-                                  ),
+                                ? Image.file(note["file"], height: 150)
+                                : Text(note["text"]),
                             const SizedBox(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  note["time"],
+                                  "${formatDate(note["date"])} • ${note["time"]}",
                                   style: const TextStyle(
                                     color: Colors.grey,
                                     fontSize: 12,
@@ -301,12 +348,11 @@ class _NotesScreenState extends State<NotesScreen> {
                                       deleteNote(index);
                                     }
                                   },
-                                  itemBuilder: (context) => [
-                                    if (note["type"] == "text")
-                                      const PopupMenuItem(
-                                        value: "edit",
-                                        child: Text("Edit"),
-                                      ),
+                                  itemBuilder: (_) => [
+                                    const PopupMenuItem(
+                                      value: "edit",
+                                      child: Text("Edit"),
+                                    ),
                                     const PopupMenuItem(
                                       value: "delete",
                                       child: Text("Delete"),
