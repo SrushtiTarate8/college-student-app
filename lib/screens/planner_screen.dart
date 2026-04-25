@@ -13,7 +13,7 @@ final FlutterLocalNotificationsPlugin _notifPlugin =
 FlutterLocalNotificationsPlugin();
 
 Future<void> initNotifications() async {
-  tzdata.initializeTimeZones(); // ✅ ENABLE this (important for scheduling)
+  tzdata.initializeTimeZones();
 
   const androidSettings =
   AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -39,14 +39,10 @@ Future<void> initNotifications() async {
     onDidReceiveNotificationResponse: (details) {},
   );
 
-  // ✅ Only THIS permission (safe)
   await _notifPlugin
       .resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>()
       ?.requestNotificationsPermission();
-
-  // ❌ REMOVE THIS LINE (causing settings screen + white screen)
-  // ?.requestExactAlarmsPermission();
 
   await _notifPlugin
       .resolvePlatformSpecificImplementation<
@@ -140,7 +136,7 @@ class Task {
   bool reminderOn;
   String colorHex;
   String priority;
-  String dateKey; // "yyyy-MM-dd"
+  String dateKey;
 
   Task({
     required this.id,
@@ -234,7 +230,6 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
   late AnimationController _fabAnimCtrl;
   late Animation<double> _fabAnim;
 
-  // Selected date (defaults to today)
   late DateTime _selectedDate;
   late DateTime _weekStart;
 
@@ -260,8 +255,6 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     _fabAnimCtrl.dispose();
     super.dispose();
   }
-
-  // ── Persistence ────────────────────────────────────────────────────────────
 
   void _loadTasks() {
     final raw = _box.get('tasks', defaultValue: []) ?? [];
@@ -352,8 +345,6 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     }
   }
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-
   String get _selectedKey => Task.keyFromDate(_selectedDate);
 
   List<Task> get _dayTasks =>
@@ -389,15 +380,11 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     return _allTasks.where((t) => t.dateKey == key).length;
   }
 
-  // ── Navigation ─────────────────────────────────────────────────────────────
-
   void _prevWeek() =>
       setState(() => _weekStart = _weekStart.subtract(const Duration(days: 7)));
 
   void _nextWeek() =>
       setState(() => _weekStart = _weekStart.add(const Duration(days: 7)));
-
-  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -458,8 +445,6 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     );
   }
 
-  // ── Header with interactive week strip ─────────────────────────────────────
-
   Widget _buildHeader() {
     final months = [
       'Jan','Feb','Mar','Apr','May','Jun',
@@ -467,21 +452,20 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     ];
     final days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
-    // Build 7 day dates starting from _weekStart
     final weekDates = List.generate(7, (i) => _weekStart.add(Duration(days: i)));
 
-    // Determine the month label for the displayed week
     final firstMonth = months[weekDates.first.month - 1];
     final lastMonth  = months[weekDates.last.month - 1];
     final monthLabel = firstMonth == lastMonth
         ? '$firstMonth ${weekDates.first.year}'
         : '$firstMonth – $lastMonth ${weekDates.last.year}';
 
-    // Selected day label
     final selLabel = _isToday(_selectedDate)
         ? 'Today'
         : '${days[_selectedDate.weekday - 1]}, '
         '${_selectedDate.day} ${months[_selectedDate.month - 1]}';
+
+    final canPop = Navigator.of(context).canPop(); // ← for back button
 
     return Container(
       decoration: const BoxDecoration(
@@ -498,28 +482,52 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top row
+          // ── Top row ───────────────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Row(
                 children: [
-                  Text(
-                    'Good ${_greeting()}! 👋',
-                    style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    'Study Planner',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5),
+                  // ✅ BACK BUTTON — only shows when there is a previous screen
+                  if (canPop)
+                    GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        margin: const EdgeInsets.only(right: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white30),
+                        ),
+                        child: const Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Good ${_greeting()}! 👋',
+                        style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Study Planner',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -644,7 +652,6 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
                         ),
                       ),
                       const SizedBox(height: 4),
-                      // Task count dot
                       count > 0
                           ? Container(
                         padding: const EdgeInsets.symmetric(
@@ -657,10 +664,8 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
                         ),
                         child: Text(
                           '$count',
-                          style: TextStyle(
-                            color: isSelected
-                                ? Colors.white
-                                : Colors.white,
+                          style: const TextStyle(
+                            color: Colors.white,
                             fontSize: 9,
                             fontWeight: FontWeight.w700,
                           ),
@@ -684,8 +689,6 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
       ),
     );
   }
-
-  // ── Progress card ──────────────────────────────────────────────────────────
 
   Widget _buildProgressCard() {
     return Container(
@@ -788,8 +791,6 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     return '${days[_selectedDate.weekday - 1]} ${_selectedDate.day} ${months[_selectedDate.month - 1]}';
   }
 
-  // ── Filter row ─────────────────────────────────────────────────────────────
-
   Widget _buildFilterRow() {
     final filters = [
       ('all', 'All', Icons.apps_rounded),
@@ -838,8 +839,6 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     );
   }
 
-  // ── Empty state ────────────────────────────────────────────────────────────
-
   Widget _buildEmptyState() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 60),
@@ -868,8 +867,6 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
       ),
     );
   }
-
-  // ── Sheet opener ───────────────────────────────────────────────────────────
 
   void _showTaskSheet(BuildContext context, {Task? task}) {
     showModalBottomSheet(
@@ -1072,7 +1069,6 @@ class _TaskCardState extends State<_TaskCard>
                                     color: kTextMuted,
                                     fontWeight: FontWeight.w600)),
                             const Spacer(),
-                            // Reminder toggle
                             GestureDetector(
                               onTap: widget.onToggleReminder,
                               child: Container(
@@ -1095,7 +1091,6 @@ class _TaskCardState extends State<_TaskCard>
                               ),
                             ),
                             const SizedBox(width: 6),
-                            // Delete
                             GestureDetector(
                               onTap: () {
                                 HapticFeedback.lightImpact();
@@ -1161,7 +1156,7 @@ class _StatPill extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  ADD / EDIT TASK SHEET  — now with date picker
+//  ADD / EDIT TASK SHEET
 // ══════════════════════════════════════════════════════════════════════════════
 
 class _AddEditTaskSheet extends StatefulWidget {
@@ -1264,7 +1259,6 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
       return;
     }
 
-    // Warn if reminder is set for a past time
     if (_reminderOn) {
       final scheduled = DateTime(
           _taskDate.year, _taskDate.month, _taskDate.day,
@@ -1312,17 +1306,41 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(4)),
-              ),
+            // ── Handle + close button ─────────────────────────────────
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(4)),
+                  ),
+                ),
+                // ✅ CLOSE button (top-right of sheet)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: kBgGrey,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.close_rounded,
+                          size: 18, color: kTextMuted),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
-            // Title
+
+            // Title row
             Row(
               children: [
                 Container(
@@ -1362,7 +1380,6 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
                 maxLines: 3),
             const SizedBox(height: 14),
 
-            // Date picker row
             _SheetLabel('Date'),
             const SizedBox(height: 6),
             GestureDetector(
@@ -1394,7 +1411,6 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
             ),
             const SizedBox(height: 14),
 
-            // Time picker row
             _SheetLabel('Time'),
             const SizedBox(height: 6),
             GestureDetector(
@@ -1489,7 +1505,6 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
             ),
             const SizedBox(height: 14),
 
-            // Reminder toggle
             Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: 14, vertical: 12),
