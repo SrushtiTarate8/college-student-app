@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
@@ -32,9 +33,13 @@ class _HomeScreenState extends State<HomeScreen>
   late AnimationController _cardsController;
   late List<AnimationController> _cardControllers;
 
-  // Live attendance percentage loaded from SharedPreferences
+  // ── Live stats ──────────────────────────────────────────────────────────────
   double _attendancePct = 0.0;
   bool   _attLoaded     = false;
+
+  int    _tasksDue      = 0;
+  int    _notesCount    = 0;
+  double? _cgpa;
 
   @override
   void initState() {
@@ -60,22 +65,31 @@ class _HomeScreenState extends State<HomeScreen>
       }
     });
 
-    _loadAttendance();
+    _loadAllStats();
   }
 
-  /// Reads subjects from the same SharedPreferences key used by AttendanceScreen
-  /// and computes the overall attendance percentage.
+  // ── Load all stats at once ──────────────────────────────────────────────────
+  void _loadAllStats() {
+    _loadAttendance();
+    _loadTasks();
+    _loadNotes();
+    _loadCGPA();
+  }
+
+  // ── Attendance ──────────────────────────────────────────────────────────────
   Future<void> _loadAttendance() async {
     try {
       final p  = await SharedPreferences.getInstance();
       final sr = p.getString('att_subjects');
-      if (sr == null) { setState(() => _attLoaded = true); return; }
-
+      if (sr == null) {
+        setState(() => _attLoaded = true);
+        return;
+      }
       final list = jsonDecode(sr) as List;
       int totalAtt = 0, totalLec = 0;
       for (final e in list) {
         final att  = (e['attended'] as int?) ?? 0;
-        final miss = (e['missed']  as int?) ?? 0;
+        final miss = (e['missed']   as int?) ?? 0;
         totalAtt += att;
         totalLec += att + miss;
       }
@@ -88,8 +102,106 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // ── Today's pending tasks (from Hive plannerBox) ────────────────────────────
+  Future<void> _loadTasks() async {
+    try {
+      final box = await Hive.openBox<List>('plannerBox');
+      final raw = box.get('tasks', defaultValue: []) ?? [];
+      final today = DateTime.now();
+      final todayKey =
+          '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+
+      final pending = raw
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .where((t) =>
+      (t['dateKey'] as String?) == todayKey &&
+          (t['isDone'] as bool?) != true)
+          .length;
+
+      if (mounted) setState(() => _tasksDue = pending);
+    } catch (_) {}
+  }
+
+  // ── Total notes count (from SharedPreferences notes_data) ──────────────────
+  Future<void> _loadNotes() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw   = prefs.getString('notes_data');
+      if (raw == null) {
+        if (mounted) setState(() => _notesCount = 0);
+        return;
+      }
+      final data  = jsonDecode(raw) as Map<String, dynamic>;
+      int total   = 0;
+      data.forEach((_, notes) => total += (notes as List).length);
+      if (mounted) setState(() => _notesCount = total);
+    } catch (_) {}
+  }
+
+  // ── CGPA from result_prediction_data ───────────────────────────────────────
+  Future<void> _loadCGPA() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw   = prefs.getString('result_prediction_data');
+      if (raw == null) return;
+
+      final data             = jsonDecode(raw) as Map<String, dynamic>;
+      final subjects         = (data['subjects'] as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      final prevCGPA         = (data['previousCGPA']    as num?)?.toDouble() ?? 0.0;
+      final completedCredits = (data['completedCredits'] as num?)?.toDouble() ?? 0.0;
+
+      // Replicate SGPACalculator logic from result_screen.dart
+      // internalMax=40, endSemMax=60, internalWeight=40, endSemWeight=60
+      double totalWeighted = 0, totalCredits = 0;
+      for (final s in subjects) {
+        final useExp = s['useExpected'] as bool? ?? false;
+        final internal = useExp
+            ? (s['expectedInternalMarks'] as num?)?.toDouble()
+            : (s['internalMarks']         as num?)?.toDouble();
+        final endSem = useExp
+            ? (s['expectedEndSemMarks'] as num?)?.toDouble()
+            : (s['endSemMarks']         as num?)?.toDouble();
+        if (internal == null || endSem == null) continue;
+
+        // normalizedInternal = (internal / 40) * 40  →  just internal
+        // normalizedEndSem   = (endSem   / 60) * 60  →  just endSem
+        final total = (internal + endSem).clamp(0.0, 100.0);
+
+        double gp = 0;
+        if      (total >= 91) gp = 10;
+        else if (total >= 81) gp = 9;
+        else if (total >= 71) gp = 8;
+        else if (total >= 61) gp = 7;
+        else if (total >= 57) gp = 6;
+        else if (total >= 50) gp = 5;
+
+        final credits = (s['credits'] as num).toDouble();
+        totalWeighted += credits * gp;
+        totalCredits  += credits;
+      }
+
+      if (totalCredits == 0) return;
+      final sgpa = totalWeighted / totalCredits;
+
+      double cgpa;
+      if (completedCredits > 0) {
+        cgpa = (prevCGPA * completedCredits + sgpa * totalCredits) /
+            (completedCredits + totalCredits);
+      } else {
+        cgpa = sgpa;
+      }
+
+      if (mounted) setState(() => _cgpa = cgpa);
+    } catch (_) {}
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
   String get _attendanceLabel =>
       _attLoaded ? '${_attendancePct.toStringAsFixed(1)}%' : '...';
+
+  String get _cgpaLabel => _cgpa != null ? _cgpa!.toStringAsFixed(2) : '--';
 
   @override
   void dispose() {
@@ -106,24 +218,24 @@ class _HomeScreenState extends State<HomeScreen>
     return "Good Evening";
   }
 
-  /// Navigate to a screen and reload attendance when we come back.
+  /// Navigate to a screen and reload all stats when we come back.
   Future<void> _pushAndRefresh(Widget screen) async {
     await Navigator.push(context, _route(screen));
-    _loadAttendance(); // refresh after returning from AttendanceScreen
+    _loadAllStats();
   }
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    final isDark = themeProvider.isDarkMode;
+    final themeProvider  = Provider.of<ThemeProvider>(context);
+    final isDark         = themeProvider.isDarkMode;
 
-    final bgColor      = isDark ? const Color(0xFF0F0E17) : const Color(0xFFF5F4FB);
-    final cardBg       = isDark ? const Color(0xFF1A1A2E) : Colors.white;
-    final primaryText  = isDark ? Colors.white : const Color(0xFF1A1535);
-    final secondaryText = isDark
+    final bgColor        = isDark ? const Color(0xFF0F0E17) : const Color(0xFFF5F4FB);
+    final cardBg         = isDark ? const Color(0xFF1A1A2E) : Colors.white;
+    final primaryText    = isDark ? Colors.white : const Color(0xFF1A1535);
+    final secondaryText  = isDark
         ? Colors.white.withOpacity(0.55)
         : const Color(0xFF1A1535).withOpacity(0.5);
-    final borderColor  = isDark
+    final borderColor    = isDark
         ? Colors.white.withOpacity(0.06)
         : const Color(0xFF6C63FF).withOpacity(0.08);
 
@@ -163,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen>
             child: CustomScrollView(
               physics: const BouncingScrollPhysics(),
               slivers: [
-                // ─── AppBar ────────────────────────────────────────────────
+                // ── AppBar ──────────────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 20, 20, 0),
@@ -206,8 +318,9 @@ class _HomeScreenState extends State<HomeScreen>
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(20),
                                 gradient: isDark
-                                    ? const LinearGradient(
-                                    colors: [Color(0xFF6C63FF), Color(0xFF9B59B6)])
+                                    ? const LinearGradient(colors: [
+                                  Color(0xFF6C63FF), Color(0xFF9B59B6)
+                                ])
                                     : LinearGradient(colors: [
                                   Colors.grey.shade300,
                                   Colors.grey.shade200,
@@ -228,7 +341,8 @@ class _HomeScreenState extends State<HomeScreen>
                                 child: Container(
                                   width: 22, height: 22,
                                   decoration: const BoxDecoration(
-                                      color: Colors.white, shape: BoxShape.circle),
+                                      color: Colors.white,
+                                      shape: BoxShape.circle),
                                   child: Center(child: Icon(
                                     isDark
                                         ? Icons.dark_mode_rounded
@@ -288,7 +402,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
 
-                // ─── Greeting ──────────────────────────────────────────────
+                // ── Greeting ─────────────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
@@ -296,7 +410,8 @@ class _HomeScreenState extends State<HomeScreen>
                       position: Tween<Offset>(
                           begin: const Offset(0, 0.2), end: Offset.zero)
                           .animate(CurvedAnimation(
-                          parent: _headerController, curve: Curves.easeOut)),
+                          parent: _headerController,
+                          curve: Curves.easeOut)),
                       child: FadeTransition(
                         opacity: _headerController,
                         child: Column(
@@ -309,9 +424,11 @@ class _HomeScreenState extends State<HomeScreen>
                             Row(children: [
                               Text(widget.studentName, style: TextStyle(
                                   color: primaryText, fontSize: 30,
-                                  fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.5)),
                               const SizedBox(width: 8),
-                              const Text("👋", style: TextStyle(fontSize: 26)),
+                              const Text("👋",
+                                  style: TextStyle(fontSize: 26)),
                             ]),
                             const SizedBox(height: 6),
                             Container(
@@ -334,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
 
-                // ─── Quick Stats ───────────────────────────────────────────
+                // ── Quick Stats bar ───────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
@@ -357,23 +474,28 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                         child: Row(children: [
                           Expanded(child: _statItem(
-                            // ← live value
-                              _attendanceLabel, "Attendance", Icons.bar_chart_rounded)),
+                              _attendanceLabel,
+                              "Attendance",
+                              Icons.bar_chart_rounded)),
                           Container(width: 1, height: 40,
                               color: Colors.white.withOpacity(0.2)),
                           Expanded(child: _statItem(
-                              "4", "Tasks Due", Icons.task_alt_rounded)),
+                              '$_tasksDue',           // ← live
+                              "Tasks Due",
+                              Icons.task_alt_rounded)),
                           Container(width: 1, height: 40,
                               color: Colors.white.withOpacity(0.2)),
                           Expanded(child: _statItem(
-                              "12", "Notes", Icons.note_rounded)),
+                              '$_notesCount',         // ← live
+                              "Notes",
+                              Icons.note_rounded)),
                         ]),
                       ),
                     ),
                   ),
                 ),
 
-                // ─── Section title ─────────────────────────────────────────
+                // ── Section title ─────────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
@@ -387,7 +509,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
 
-                // ─── Feature Cards Grid ────────────────────────────────────
+                // ── Feature Cards Grid ────────────────────────────────────────
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
                   sliver: SliverGrid(
@@ -397,11 +519,13 @@ class _HomeScreenState extends State<HomeScreen>
                         title: "Attendance",
                         subtitle: "Track your presence",
                         icon: Icons.bar_chart_rounded,
-                        gradientColors: const [Color(0xFF6C63FF), Color(0xFF9B59B6)],
-                        // ← live value on the card badge too
-                        badgeText: _attendanceLabel,
+                        gradientColors: const [
+                          Color(0xFF6C63FF), Color(0xFF9B59B6)
+                        ],
+                        badgeText: _attendanceLabel,            // ← live
                         cardBg: cardBg, borderColor: borderColor,
-                        primaryText: primaryText, secondaryText: secondaryText,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
                         onTap: () => _pushAndRefresh(const AttendanceScreen()),
                       ),
                       _buildCard(
@@ -409,10 +533,15 @@ class _HomeScreenState extends State<HomeScreen>
                         title: "Study Planner",
                         subtitle: "Plan your sessions",
                         icon: Icons.calendar_today_rounded,
-                        gradientColors: const [Color(0xFF43E97B), Color(0xFF38F9D7)],
-                        badgeText: "4 tasks",
+                        gradientColors: const [
+                          Color(0xFF43E97B), Color(0xFF38F9D7)
+                        ],
+                        badgeText: _tasksDue == 0              // ← live
+                            ? 'No tasks'
+                            : '$_tasksDue pending',
                         cardBg: cardBg, borderColor: borderColor,
-                        primaryText: primaryText, secondaryText: secondaryText,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
                         onTap: () => _pushAndRefresh(PlannerHomeScreen()),
                       ),
                       _buildCard(
@@ -420,10 +549,13 @@ class _HomeScreenState extends State<HomeScreen>
                         title: "Notes",
                         subtitle: "Your study notes",
                         icon: Icons.sticky_note_2_rounded,
-                        gradientColors: const [Color(0xFFFFA751), Color(0xFFFFE259)],
-                        badgeText: "12 notes",
+                        gradientColors: const [
+                          Color(0xFFFFA751), Color(0xFFFFE259)
+                        ],
+                        badgeText: '$_notesCount notes',        // ← live
                         cardBg: cardBg, borderColor: borderColor,
-                        primaryText: primaryText, secondaryText: secondaryText,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
                         onTap: () => _pushAndRefresh(const NotesScreen()),
                       ),
                       _buildCard(
@@ -431,14 +563,18 @@ class _HomeScreenState extends State<HomeScreen>
                         title: "Result Predictor",
                         subtitle: "Predict your score",
                         icon: Icons.auto_graph_rounded,
-                        gradientColors: const [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
-                        badgeText: "CGPA",
+                        gradientColors: const [
+                          Color(0xFFFF6B6B), Color(0xFFFF8E53)
+                        ],
+                        badgeText: 'CGPA $_cgpaLabel',          // ← live
                         cardBg: cardBg, borderColor: borderColor,
-                        primaryText: primaryText, secondaryText: secondaryText,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
                         onTap: () => _pushAndRefresh(const ResultScreen()),
                       ),
                     ]),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 2,
                       crossAxisSpacing: 16,
                       mainAxisSpacing: 16,
@@ -545,8 +681,8 @@ class _HomeScreenState extends State<HomeScreen>
                       color: primaryText, fontSize: 15,
                       fontWeight: FontWeight.w700)),
                   const SizedBox(height: 3),
-                  Text(subtitle, style: TextStyle(
-                      color: secondaryText, fontSize: 11.5)),
+                  Text(subtitle,
+                      style: TextStyle(color: secondaryText, fontSize: 11.5)),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -558,10 +694,12 @@ class _HomeScreenState extends State<HomeScreen>
                       ]),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                          color: gradientColors[0].withOpacity(0.3), width: 1),
+                          color: gradientColors[0].withOpacity(0.3),
+                          width: 1),
                     ),
                     child: Text(badgeText, style: TextStyle(
-                        color: gradientColors[0], fontSize: 11,
+                        color: gradientColors[0],
+                        fontSize: 11,
                         fontWeight: FontWeight.w600)),
                   ),
                 ],
@@ -579,8 +717,10 @@ class _HomeScreenState extends State<HomeScreen>
     transitionsBuilder: (_, anim, __, child) => FadeTransition(
       opacity: anim,
       child: SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0.05, 0), end: Offset.zero)
-            .animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
+        position: Tween<Offset>(
+            begin: const Offset(0.05, 0), end: Offset.zero)
+            .animate(
+            CurvedAnimation(parent: anim, curve: Curves.easeOut)),
         child: child,
       ),
     ),
