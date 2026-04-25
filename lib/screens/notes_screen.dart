@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 
+// ✅ added color
+const Color notesYellow = Color(0xFFFFF59D);
+
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
 
@@ -120,16 +123,17 @@ class _NotesScreenState extends State<NotesScreen> {
         ),
         actionsPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         actions: [
-          // ❌ Cancel button (missing before)
           TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.black, // ✅ make text black
+            ),
             onPressed: () => Navigator.pop(context),
             child: const Text("Cancel"),
           ),
-
-          // ✅ Create button
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepPurple,
+              backgroundColor: notesYellow, // ✅ changed
+              foregroundColor: Colors.black,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
@@ -179,14 +183,16 @@ class _NotesScreenState extends State<NotesScreen> {
               pickFile();
             },
           ),
-
-          // ✅ CANCEL BUTTON (this was missing)
           TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.black),
             onPressed: () => Navigator.pop(context),
             child: const Text("Cancel"),
           ),
-
           ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              foregroundColor: Colors.black, // ✅ add this
+              backgroundColor: notesYellow,
+            ),
             onPressed: () {
               addNote(controller.text);
               Navigator.pop(context);
@@ -202,13 +208,11 @@ class _NotesScreenState extends State<NotesScreen> {
   Widget build(BuildContext context) {
     final allNotes = folders[selectedFolder]!;
 
-    // extract unique dates
     final dates = allNotes
         .map((note) => formatDate(note["date"]))
         .toSet()
         .toList();
 
-    // filter notes by date
     final notes = selectedDate == null
         ? allNotes
         : allNotes
@@ -219,7 +223,8 @@ class _NotesScreenState extends State<NotesScreen> {
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text("My Notes"),
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: notesYellow, // ✅ changed
+        foregroundColor: Colors.black, // ✅ for visibility
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -232,7 +237,6 @@ class _NotesScreenState extends State<NotesScreen> {
             ),
           ),
 
-          // 📁 FOLDER CHIPS (unchanged UI)
           SizedBox(
             height: 50,
             child: ListView(
@@ -252,9 +256,9 @@ class _NotesScreenState extends State<NotesScreen> {
                           selectedDate = null;
                         });
                       },
-                      selectedColor: Colors.deepPurple,
+                      selectedColor: notesYellow, // ✅ changed
                       labelStyle: TextStyle(
-                        color: isSelected ? Colors.white : Colors.black,
+                        color: isSelected ? Colors.black : Colors.black,
                       ),
                     ),
                   );
@@ -264,7 +268,6 @@ class _NotesScreenState extends State<NotesScreen> {
             ),
           ),
 
-          // 📅 DATE CHIPS (NEW)
           SizedBox(
             height: 45,
             child: ListView(
@@ -275,6 +278,10 @@ class _NotesScreenState extends State<NotesScreen> {
                   child: ChoiceChip(
                     label: const Text("All"),
                     selected: selectedDate == null,
+                    selectedColor: notesYellow, // ✅ add this
+                    labelStyle: TextStyle(
+                      color: selectedDate == null ? Colors.black : Colors.black,
+                    ),
                     onSelected: (_) {
                       setState(() {
                         selectedDate = null;
@@ -288,6 +295,12 @@ class _NotesScreenState extends State<NotesScreen> {
                     child: ChoiceChip(
                       label: Text(date),
                       selected: selectedDate == date,
+                      selectedColor: notesYellow, // ✅ THIS LINE ADDED
+                      labelStyle: TextStyle(
+                        color: selectedDate == date
+                            ? Colors.black
+                            : Colors.black,
+                      ),
                       onSelected: (_) {
                         setState(() {
                           selectedDate = date;
@@ -302,7 +315,6 @@ class _NotesScreenState extends State<NotesScreen> {
 
           const SizedBox(height: 10),
 
-          // 📝 NOTES (unchanged UI)
           Expanded(
             child: notes.isEmpty
                 ? const Center(child: Text("No notes yet"))
@@ -371,7 +383,8 @@ class _NotesScreenState extends State<NotesScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: showAddNoteDialog,
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: notesYellow, // ✅ changed
+        foregroundColor: Colors.black,
         child: const Icon(Icons.add),
       ),
     );
