@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-//import 'planner_screen.dart';
+import 'package:provider/provider.dart';
 import 'screens/planner_screen.dart';
+import 'screens/home_screen.dart';         // ← import your HomeScreen
+import 'screens/theme_provider.dart';      // ← import ThemeProvider
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tzdata;
 
@@ -31,13 +33,28 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Student Planner',
-      theme: ThemeData(
-        primarySwatch: Colors.teal,
+    return ChangeNotifierProvider(
+      create: (_) => ThemeProvider(),   // ← ThemeProvider needed by HomeScreen
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'CampusMate',
+            theme: ThemeData(
+              primarySwatch: Colors.teal,
+              brightness: Brightness.light,
+            ),
+            darkTheme: ThemeData(
+              primarySwatch: Colors.teal,
+              brightness: Brightness.dark,
+            ),
+            themeMode: themeProvider.isDarkMode
+                ? ThemeMode.dark
+                : ThemeMode.light,
+            home: const HomeScreen(),   // ← Change to HomeScreen
+          );
+        },
       ),
-      home: const PlannerHomeScreen(),
     );
   }
 }
