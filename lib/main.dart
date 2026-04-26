@@ -2,22 +2,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
-import 'screens/planner_screen.dart';
-import 'screens/home_screen.dart';         // ← import your HomeScreen
-import 'screens/theme_provider.dart';      // ← import ThemeProvider
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:firebase_core/firebase_core.dart';
+
+import 'firebase_options.dart';
+import 'screens/home_screen.dart';
+import 'screens/theme_provider.dart';
+import 'screens/planner_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  // Initialize timezone
   tzdata.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
 
+  // Initialize Hive
   await Hive.initFlutter();
   await Hive.openBox<List>('plannerBox');
 
+  // Initialize notifications
   await initNotifications();
 
+  // Status bar styling
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -34,7 +47,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => ThemeProvider(),   // ← ThemeProvider needed by HomeScreen
+      create: (_) => ThemeProvider(),
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
           return MaterialApp(
@@ -48,10 +61,9 @@ class MyApp extends StatelessWidget {
               primarySwatch: Colors.teal,
               brightness: Brightness.dark,
             ),
-            themeMode: themeProvider.isDarkMode
-                ? ThemeMode.dark
-                : ThemeMode.light,
-            home: const HomeScreen(),   // ← Change to HomeScreen
+            themeMode:
+            themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+            home: const HomeScreen(),
           );
         },
       ),
