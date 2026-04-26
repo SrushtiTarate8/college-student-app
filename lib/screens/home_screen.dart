@@ -9,6 +9,7 @@ import 'notes_screen.dart';
 import 'result_screen.dart';
 import 'theme_provider.dart';
 import 'package:provider/provider.dart';
+import 'chatbot_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String studentName;
@@ -129,6 +130,22 @@ class _HomeScreenState extends State<HomeScreen>
 
     return Scaffold(
       backgroundColor: bgColor,
+      // ✅ ONLY THIS ADDED — chatbot FAB
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChatbotScreen(
+                studentName: widget.studentName,
+                studentBranch: widget.studentBranch,
+              ),
+            ),
+          ),
+          backgroundColor: const Color(0xFF6C63FF),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          tooltip: 'AI Assistant',
+          child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 22),
+        ),
       body: Stack(
         children: [
           // Decorative blobs

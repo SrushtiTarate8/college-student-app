@@ -7,6 +7,7 @@ import 'screens/theme_provider.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'services/notification_service.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +17,7 @@ void main() async {
 
   await Hive.initFlutter();
   await Hive.openBox<List>('plannerBox');
+  await dotenv.load(fileName: ".env");
 
   await initNotifications();
 
