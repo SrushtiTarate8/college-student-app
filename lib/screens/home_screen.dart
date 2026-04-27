@@ -12,6 +12,7 @@ import 'productivity_engine.dart';
 import 'pomodoro_screen.dart';
 import 'theme_provider.dart';
 import 'package:provider/provider.dart';
+import 'chatbot_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String studentName;
@@ -250,6 +251,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     return Scaffold(
       backgroundColor: bgColor,
+
+      // ✅ Chatbot
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChatbotScreen(
+              studentName:   widget.studentName,
+              studentBranch: widget.studentBranch,
+            ),
+          ),
+        ),
+        backgroundColor: const Color(0xFF6C63FF),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        tooltip: 'AI Assistant',
+        child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 22),
+      ),
+
       body: Stack(
         children: [
           // ── Decorative blobs ──────────────────────────────────────────────
@@ -461,7 +480,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
 
                 // ── Quick Stats bar ───────────────────────────────────────────
-                // Shows live: attendance %, tasks due, notes count
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
@@ -484,13 +502,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ),
                         child: Row(children: [
                           Expanded(child: _statItem(
-                              _attendanceLabel,          // ← live
+                              _attendanceLabel,
                               "Attendance",
                               Icons.bar_chart_rounded)),
                           Container(width: 1, height: 40,
                               color: Colors.white.withOpacity(0.2)),
                           Expanded(child: _statItem(
-                              '$_tasksDue',              // ← live
+                              '$_tasksDue',
                               "Tasks Due",
                               Icons.task_alt_rounded)),
                           Container(width: 1, height: 40,
@@ -562,7 +580,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         gradientColors: const [
                           Color(0xFF6C63FF), Color(0xFF9B59B6)
                         ],
-                        badgeText: _attendanceLabel,             // ← live
+                        badgeText: _attendanceLabel,
                         cardBg: cardBg, borderColor: borderColor,
                         primaryText: primaryText,
                         secondaryText: secondaryText,
@@ -576,7 +594,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         gradientColors: const [
                           Color(0xFF43E97B), Color(0xFF38F9D7)
                         ],
-                        badgeText: _tasksDue == 0               // ← live
+                        badgeText: _tasksDue == 0
                             ? 'No tasks'
                             : '$_tasksDue pending',
                         cardBg: cardBg, borderColor: borderColor,
@@ -592,7 +610,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         gradientColors: const [
                           Color(0xFFFFA751), Color(0xFFFFE259)
                         ],
-                        badgeText: '$_notesCount notes',         // ← live
+                        badgeText: '$_notesCount notes',
                         cardBg: cardBg, borderColor: borderColor,
                         primaryText: primaryText,
                         secondaryText: secondaryText,
@@ -606,7 +624,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         gradientColors: const [
                           Color(0xFFFF6B6B), Color(0xFFFF8E53)
                         ],
-                        badgeText: 'CGPA $_cgpaLabel',           // ← live
+                        badgeText: 'CGPA $_cgpaLabel',
                         cardBg: cardBg, borderColor: borderColor,
                         primaryText: primaryText,
                         secondaryText: secondaryText,
