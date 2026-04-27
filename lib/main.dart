@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:firebase_core/firebase_core.dart';
-
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'screens/theme_provider.dart';
@@ -26,6 +26,7 @@ void main() async {
   // Initialize Hive
   await Hive.initFlutter();
   await Hive.openBox<List>('plannerBox');
+  await dotenv.load(fileName: ".env");
 
   // Initialize notifications
   await initNotifications();
