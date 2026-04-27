@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
+import 'package:open_filex/open_filex.dart'; // ← add open_filex to pubspec.yaml
 import 'theme_provider.dart';
 
 const Color notesYellow = Color(0xFFFFF59D);
@@ -23,25 +24,30 @@ class _NotesScreenState extends State<NotesScreen> {
   String? selectedDate;
   bool    _loading       = true;
 
-  // ── Persistence ──────────────────────────────────────────────────────────────
+  // ── Persistence ───────────────────────────────────────────────────────────────
+  // Images & files are stored by their absolute path so they survive restarts.
 
   Future<void> _saveNotes() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final serialisable = folders.map((folderName, notes) {
-        final serNotes = notes
-            .where((n) => n['type'] != 'image')
-            .map((n) => {
-          'text': n['text'] as String,
-          'type': n['type'] as String,
-          'time': n['time'] as String,
-          'date': (n['date'] as DateTime).toIso8601String(),
-        })
-            .toList();
+        final serNotes = notes.map((n) {
+          return {
+            'text': n['text'] as String,
+            'type': n['type'] as String,
+            'time': n['time'] as String,
+            'date': (n['date'] as DateTime).toIso8601String(),
+            // persist the file path for image / file notes
+            if (n['type'] == 'image' || n['type'] == 'file')
+              'path': (n['file'] as File).path,
+          };
+        }).toList();
         return MapEntry(folderName, serNotes);
       });
       await prefs.setString('notes_data', jsonEncode(serialisable));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('_saveNotes error: $e');
+    }
   }
 
   Future<void> _loadNotes() async {
@@ -53,12 +59,18 @@ class _NotesScreenState extends State<NotesScreen> {
         final loaded  = <String, List<Map<String, dynamic>>>{};
         decoded.forEach((folder, notesList) {
           loaded[folder] = (notesList as List).map((n) {
-            return {
+            final note = <String, dynamic>{
               'text': n['text'] as String,
               'type': n['type'] as String,
               'time': n['time'] as String,
               'date': DateTime.parse(n['date'] as String),
             };
+            // restore File object for image / file notes
+            if ((n['type'] == 'image' || n['type'] == 'file') &&
+                n['path'] != null) {
+              note['file'] = File(n['path'] as String);
+            }
+            return note;
           }).toList();
         });
         loaded.putIfAbsent("General", () => []);
@@ -69,7 +81,9 @@ class _NotesScreenState extends State<NotesScreen> {
           }
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('_loadNotes error: $e');
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -123,15 +137,13 @@ class _NotesScreenState extends State<NotesScreen> {
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
             filled: true,
-            fillColor:
-            isDark ? const Color(0xFF2A2A3E) : Colors.grey[100],
+            fillColor: isDark ? const Color(0xFF2A2A3E) : Colors.grey[100],
           ),
         ),
         actions: [
           TextButton(
             style: TextButton.styleFrom(
-                foregroundColor:
-                isDark ? Colors.white70 : Colors.black),
+                foregroundColor: isDark ? Colors.white70 : Colors.black),
             onPressed: () => Navigator.pop(context),
             child: const Text("Cancel"),
           ),
@@ -163,19 +175,23 @@ class _NotesScreenState extends State<NotesScreen> {
     if (pickedFile != null) {
       setState(() {
         folders[selectedFolder]!.add({
-          "text": "Image",
+          "text": pickedFile.name,           // store actual filename
           "file": File(pickedFile.path),
           "type": "image",
           "time": TimeOfDay.now().format(context),
           "date": DateTime.now(),
         });
       });
+      _saveNotes(); // ← was missing for images!
     }
   }
 
   Future<void> pickFile() async {
-    final result = await FilePicker.platform.pickFiles();
-    if (result != null) {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,                   // allows PDF + all other formats
+      withData: false,                      // use path, not bytes (better for large files)
+    );
+    if (result != null && result.files.single.path != null) {
       setState(() {
         folders[selectedFolder]!.add({
           "text": result.files.single.name,
@@ -189,6 +205,44 @@ class _NotesScreenState extends State<NotesScreen> {
     }
   }
 
+  // ── Open file / image externally ──────────────────────────────────────────────
+
+  Future<void> _openFile(File file) async {
+    final result = await OpenFilex.open(file.path);
+    if (result.type != ResultType.done && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Cannot open file: ${result.message}"),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  // ── Full-screen image viewer ───────────────────────────────────────────────────
+
+  void _viewImage(File file) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            title: Text(file.path.split('/').last,
+                style: const TextStyle(fontSize: 14)),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              child: Image.file(file, fit: BoxFit.contain),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   // ── Folder dialog ─────────────────────────────────────────────────────────────
 
   void addFolder({required bool isDark}) {
@@ -198,8 +252,7 @@ class _NotesScreenState extends State<NotesScreen> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: isDark ? const Color(0xFF1E1E2E) : Colors.white,
-        shape:
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           "New Folder",
           style: TextStyle(
@@ -211,12 +264,11 @@ class _NotesScreenState extends State<NotesScreen> {
           style: TextStyle(color: isDark ? Colors.white : Colors.black),
           decoration: InputDecoration(
             hintText: "Enter folder name",
-            hintStyle: TextStyle(
-                color: isDark ? Colors.white38 : Colors.black38),
+            hintStyle:
+            TextStyle(color: isDark ? Colors.white38 : Colors.black38),
             border: const OutlineInputBorder(),
             filled: true,
-            fillColor:
-            isDark ? const Color(0xFF2A2A3E) : Colors.grey[100],
+            fillColor: isDark ? const Color(0xFF2A2A3E) : Colors.grey[100],
           ),
         ),
         actionsPadding:
@@ -224,8 +276,7 @@ class _NotesScreenState extends State<NotesScreen> {
         actions: [
           TextButton(
             style: TextButton.styleFrom(
-                foregroundColor:
-                isDark ? Colors.white70 : Colors.black),
+                foregroundColor: isDark ? Colors.white70 : Colors.black),
             onPressed: () => Navigator.pop(context),
             child: const Text("Cancel"),
           ),
@@ -269,18 +320,19 @@ class _NotesScreenState extends State<NotesScreen> {
         ),
         content: TextField(
           controller: controller,
+          maxLines: 4,
           style: TextStyle(color: isDark ? Colors.white : Colors.black),
           decoration: InputDecoration(
             hintText: "Write something...",
-            hintStyle: TextStyle(
-                color: isDark ? Colors.white38 : Colors.black38),
+            hintStyle:
+            TextStyle(color: isDark ? Colors.white38 : Colors.black38),
             border: const OutlineInputBorder(),
             filled: true,
-            fillColor:
-            isDark ? const Color(0xFF2A2A3E) : Colors.grey[100],
+            fillColor: isDark ? const Color(0xFF2A2A3E) : Colors.grey[100],
           ),
         ),
         actions: [
+          // Image picker
           IconButton(
             icon: Icon(Icons.image,
                 color: isDark ? Colors.white70 : Colors.black87),
@@ -289,6 +341,7 @@ class _NotesScreenState extends State<NotesScreen> {
               pickImage();
             },
           ),
+          // File / PDF picker
           IconButton(
             icon: Icon(Icons.attach_file,
                 color: isDark ? Colors.white70 : Colors.black87),
@@ -299,8 +352,7 @@ class _NotesScreenState extends State<NotesScreen> {
           ),
           TextButton(
             style: TextButton.styleFrom(
-                foregroundColor:
-                isDark ? Colors.white70 : Colors.black),
+                foregroundColor: isDark ? Colors.white70 : Colors.black),
             onPressed: () => Navigator.pop(context),
             child: const Text("Cancel"),
           ),
@@ -320,15 +372,161 @@ class _NotesScreenState extends State<NotesScreen> {
     );
   }
 
+  // ── Note card ─────────────────────────────────────────────────────────────────
+
+  Widget _buildNoteContent(
+      Map<String, dynamic> note, {
+        required Color primaryText,
+        required Color secondaryText,
+      }) {
+    final type = note["type"] as String;
+    final file = note["file"] as File?;
+
+    if (type == "image" && file != null) {
+      // Check the file still exists on device
+      final exists = file.existsSync();
+      if (!exists) {
+        return Row(
+          children: [
+            const Icon(Icons.broken_image, color: Colors.grey),
+            const SizedBox(width: 8),
+            Text("Image not found", style: TextStyle(color: secondaryText)),
+          ],
+        );
+      }
+      return GestureDetector(
+        onTap: () => _viewImage(file),  // ← tap opens full-screen viewer
+        child: Stack(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.file(
+                file,
+                height: 160,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+            ),
+            // Small "tap to expand" hint
+            Positioned(
+              bottom: 6,
+              right: 6,
+              child: Container(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.open_in_full, color: Colors.white, size: 12),
+                    SizedBox(width: 3),
+                    Text("Tap to expand",
+                        style:
+                        TextStyle(color: Colors.white, fontSize: 10)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (type == "file" && file != null) {
+      final fileName = note["text"] as String;
+      final ext      = fileName.split('.').last.toUpperCase();
+      final exists   = file.existsSync();
+
+      // Choose icon by extension
+      IconData icon;
+      Color    iconColor;
+      if (ext == "PDF") {
+        icon      = Icons.picture_as_pdf;
+        iconColor = Colors.redAccent;
+      } else if (["DOC", "DOCX"].contains(ext)) {
+        icon      = Icons.description;
+        iconColor = Colors.blueAccent;
+      } else if (["XLS", "XLSX"].contains(ext)) {
+        icon      = Icons.table_chart;
+        iconColor = Colors.green;
+      } else if (["PPT", "PPTX"].contains(ext)) {
+        icon      = Icons.slideshow;
+        iconColor = Colors.orange;
+      } else if (["MP4", "MOV", "AVI"].contains(ext)) {
+        icon      = Icons.videocam;
+        iconColor = Colors.purple;
+      } else if (["MP3", "WAV", "AAC"].contains(ext)) {
+        icon      = Icons.music_note;
+        iconColor = Colors.teal;
+      } else {
+        icon      = Icons.insert_drive_file;
+        iconColor = Colors.grey;
+      }
+
+      return GestureDetector(
+        onTap: exists ? () => _openFile(file) : null, // ← tap opens file
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          decoration: BoxDecoration(
+            color: iconColor.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: iconColor.withOpacity(0.25)),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: iconColor, size: 32),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fileName,
+                      style: TextStyle(
+                          color: primaryText,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 13),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      exists ? "Tap to open" : "File not found",
+                      style: TextStyle(
+                          color: exists ? iconColor : Colors.redAccent,
+                          fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.open_in_new,
+                color: exists ? iconColor : Colors.grey,
+                size: 18,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Default: plain text
+    return Text(
+      note["text"] as String,
+      style: TextStyle(color: primaryText, fontSize: 14),
+    );
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    // Read ThemeProvider — same pattern as HomeScreen, PlannerScreen, ResultScreen
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark        = themeProvider.isDarkMode;
 
-    // Colour tokens that mirror the rest of the app
     final bgColor       = isDark ? const Color(0xFF0F0E17) : Colors.grey[100]!;
     final cardColor     = isDark ? const Color(0xFF1A1A2E) : Colors.white;
     final primaryText   = isDark ? Colors.white : Colors.black;
@@ -339,10 +537,8 @@ class _NotesScreenState extends State<NotesScreen> {
     final appBarBg      = isDark ? const Color(0xFF1A1A2E) : notesYellow;
     final appBarFg      = isDark ? Colors.white : Colors.black;
     final chipSelected  = isDark ? const Color(0xFF2C2C4E) : notesYellow;
-    final chipUnselBg   =
-    isDark ? const Color(0xFF1E1E2E) : Colors.grey[200]!;
-    final chipBorder    =
-    isDark ? Colors.white24 : Colors.transparent;
+    final chipUnselBg   = isDark ? const Color(0xFF1E1E2E) : Colors.grey[200]!;
+    final chipBorder    = isDark ? Colors.white24 : Colors.transparent;
 
     if (_loading) {
       return Scaffold(
@@ -374,7 +570,6 @@ class _NotesScreenState extends State<NotesScreen> {
         foregroundColor: appBarFg,
         elevation: isDark ? 0 : 2,
         actions: [
-          // ── Dark-mode toggle (same style as HomeScreen) ─────────────────
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Center(
@@ -388,10 +583,8 @@ class _NotesScreenState extends State<NotesScreen> {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(20),
                     gradient: isDark
-                        ? const LinearGradient(colors: [
-                      Color(0xFF6C63FF),
-                      Color(0xFF9B59B6),
-                    ])
+                        ? const LinearGradient(
+                        colors: [Color(0xFF6C63FF), Color(0xFF9B59B6)])
                         : LinearGradient(colors: [
                       Colors.grey.shade400,
                       Colors.grey.shade300,
@@ -409,9 +602,8 @@ class _NotesScreenState extends State<NotesScreen> {
                   child: AnimatedAlign(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
-                    alignment: isDark
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
+                    alignment:
+                    isDark ? Alignment.centerRight : Alignment.centerLeft,
                     child: Container(
                       width: 22,
                       height: 22,
@@ -422,9 +614,8 @@ class _NotesScreenState extends State<NotesScreen> {
                           isDark
                               ? Icons.dark_mode_rounded
                               : Icons.wb_sunny_rounded,
-                          color: isDark
-                              ? const Color(0xFF6C63FF)
-                              : Colors.amber,
+                          color:
+                          isDark ? const Color(0xFF6C63FF) : Colors.amber,
                           size: 13,
                         ),
                       ),
@@ -439,7 +630,7 @@ class _NotesScreenState extends State<NotesScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Subtitle ───────────────────────────────────────────────────────
+          // Subtitle
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
@@ -448,7 +639,7 @@ class _NotesScreenState extends State<NotesScreen> {
             ),
           ),
 
-          // ── Folder chips ───────────────────────────────────────────────────
+          // Folder chips
           SizedBox(
             height: 50,
             child: ListView(
@@ -487,7 +678,7 @@ class _NotesScreenState extends State<NotesScreen> {
             ),
           ),
 
-          // ── Date filter chips ──────────────────────────────────────────────
+          // Date filter chips
           SizedBox(
             height: 45,
             child: ListView(
@@ -530,8 +721,7 @@ class _NotesScreenState extends State<NotesScreen> {
                             ? FontWeight.w600
                             : FontWeight.normal,
                       ),
-                      onSelected: (_) =>
-                          setState(() => selectedDate = date),
+                      onSelected: (_) => setState(() => selectedDate = date),
                     ),
                   );
                 }),
@@ -541,21 +731,33 @@ class _NotesScreenState extends State<NotesScreen> {
 
           const SizedBox(height: 10),
 
-          // ── Notes list ─────────────────────────────────────────────────────
+          // Notes list
           Expanded(
             child: notes.isEmpty
                 ? Center(
-              child: Text(
-                "No notes yet",
-                style:
-                TextStyle(color: secondaryText, fontSize: 15),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.notes,
+                      size: 56,
+                      color: secondaryText.withOpacity(0.4)),
+                  const SizedBox(height: 12),
+                  Text(
+                    "No notes yet.\nTap + to add one!",
+                    textAlign: TextAlign.center,
+                    style:
+                    TextStyle(color: secondaryText, fontSize: 15),
+                  ),
+                ],
               ),
             )
                 : ListView.builder(
               padding: const EdgeInsets.all(10),
               itemCount: notes.length,
               itemBuilder: (context, index) {
-                final note = notes[index];
+                final note      = notes[index];
+                final realIndex = allNotes.indexOf(note);
+
                 return Container(
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(12),
@@ -575,27 +777,16 @@ class _NotesScreenState extends State<NotesScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Content
-                      if (note["type"] == "image")
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.file(
-                            note["file"] as File,
-                            height: 150,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                          ),
-                        )
-                      else
-                        Text(
-                          note["text"] as String,
-                          style: TextStyle(
-                              color: primaryText, fontSize: 14),
-                        ),
+                      // ── Note content (image / file / text) ──────────
+                      _buildNoteContent(
+                        note,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
+                      ),
 
                       const SizedBox(height: 8),
 
-                      // Footer
+                      // ── Footer: timestamp + menu ────────────────────
                       Row(
                         mainAxisAlignment:
                         MainAxisAlignment.spaceBetween,
@@ -610,8 +801,6 @@ class _NotesScreenState extends State<NotesScreen> {
                             icon: Icon(Icons.more_vert,
                                 color: secondaryText, size: 20),
                             onSelected: (value) {
-                              final realIndex =
-                              allNotes.indexOf(note);
                               if (realIndex == -1) return;
                               if (value == "edit" &&
                                   note["type"] == "text") {
@@ -621,12 +810,13 @@ class _NotesScreenState extends State<NotesScreen> {
                               }
                             },
                             itemBuilder: (_) => [
-                              PopupMenuItem(
-                                value: "edit",
-                                child: Text("Edit",
-                                    style: TextStyle(
-                                        color: primaryText)),
-                              ),
+                              if (note["type"] == "text")
+                                PopupMenuItem(
+                                  value: "edit",
+                                  child: Text("Edit",
+                                      style: TextStyle(
+                                          color: primaryText)),
+                                ),
                               PopupMenuItem(
                                 value: "delete",
                                 child: Text(
