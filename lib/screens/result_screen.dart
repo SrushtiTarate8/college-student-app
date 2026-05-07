@@ -1,7 +1,18 @@
 // =============================================================================
-// ResultScreen.dart
+// ResultScreen.dart  — v2.0
 // Complete Result Prediction Module for College App
 // Theme: Red/Rose accent with full dark/light mode toggle via ThemeProvider
+//
+// NEW in v2.0:
+//  • Configurable marking scheme — student picks their university preset
+//    (MU 20/80, VTU 30/70, Default 40/60, 50/50, 25/75, or Custom)
+//  • Editable internal-max / end-sem-max / pass mark
+//  • Grading-config card in Prediction tab with live grade-scale editor
+//  • Backlog-risk chip per subject
+//  • Credit-load progress bar in summary banner
+//  • Attendance warning toggle per subject
+//  • Semester selector (Sem 1–8) drives completed-credits hint
+//  • Pass-mark line on end-sem slider
 // =============================================================================
 
 import 'dart:convert';
@@ -11,6 +22,216 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'theme_provider.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 0 — UNIVERSITY PRESETS
+// Real Indian university marking schemes
+// ─────────────────────────────────────────────────────────────────────────────
+
+class UniversityPreset {
+  final String id;
+  final String name;
+  final String shortName;
+  final double internalMax;
+  final double endSemMax;
+  final double passMarkInternal;   // minimum to pass internal component
+  final double passMarkEndSem;     // minimum to pass end-sem component
+  final double passMarkTotal;      // minimum total to pass
+  final List<GradeScale> gradeScales;
+
+  const UniversityPreset({
+    required this.id,
+    required this.name,
+    required this.shortName,
+    required this.internalMax,
+    required this.endSemMax,
+    required this.passMarkInternal,
+    required this.passMarkEndSem,
+    required this.passMarkTotal,
+    required this.gradeScales,
+  });
+
+  double get totalMax => internalMax + endSemMax;
+  double get internalWeight => internalMax;
+  double get endSemWeight => endSemMax;
+
+  // Normalise to 100 for grade lookup
+  double normalise(double internal, double endSem) {
+    return ((internal / internalMax) * internalMax +
+        (endSem / endSemMax) * endSemMax)
+        .clamp(0.0, totalMax);
+  }
+
+  // Returns total marks out of totalMax (not 100)
+  double computeTotal(double internal, double endSem) =>
+      (internal + endSem).clamp(0.0, totalMax);
+}
+
+class UniversityPresets {
+  // ── Mumbai University — 20 Internal + 80 End-Sem = 100 ──────────────────
+  static const UniversityPreset mumbaiUniversity = UniversityPreset(
+    id: 'mu',
+    name: 'Mumbai University',
+    shortName: 'MU (20+80)',
+    internalMax: 20,
+    endSemMax: 80,
+    passMarkInternal: 0,   // MU: no separate internal pass condition
+    passMarkEndSem: 32,    // 40% of 80
+    passMarkTotal: 40,
+    gradeScales: [
+      GradeScale(label: 'O',  minMarks: 80, maxMarks: 100, gradePoints: 10),
+      GradeScale(label: 'A+', minMarks: 70, maxMarks: 79,  gradePoints: 9),
+      GradeScale(label: 'A',  minMarks: 60, maxMarks: 69,  gradePoints: 8),
+      GradeScale(label: 'B+', minMarks: 55, maxMarks: 59,  gradePoints: 7),
+      GradeScale(label: 'B',  minMarks: 50, maxMarks: 54,  gradePoints: 6),
+      GradeScale(label: 'C',  minMarks: 45, maxMarks: 49,  gradePoints: 5),
+      GradeScale(label: 'P',  minMarks: 40, maxMarks: 44,  gradePoints: 4),
+      GradeScale(label: 'F',  minMarks: 0,  maxMarks: 39,  gradePoints: 0),
+    ],
+  );
+
+  // ── VTU — 30 Internal + 70 End-Sem = 100 ────────────────────────────────
+  static const UniversityPreset vtu = UniversityPreset(
+    id: 'vtu',
+    name: 'VTU (Visvesvaraya Technological University)',
+    shortName: 'VTU (30+70)',
+    internalMax: 30,
+    endSemMax: 70,
+    passMarkInternal: 12,  // 40% of 30
+    passMarkEndSem: 28,    // 40% of 70
+    passMarkTotal: 40,
+    gradeScales: [
+      GradeScale(label: 'O',  minMarks: 90, maxMarks: 100, gradePoints: 10),
+      GradeScale(label: 'A+', minMarks: 80, maxMarks: 89,  gradePoints: 9),
+      GradeScale(label: 'A',  minMarks: 70, maxMarks: 79,  gradePoints: 8),
+      GradeScale(label: 'B+', minMarks: 60, maxMarks: 69,  gradePoints: 7),
+      GradeScale(label: 'B',  minMarks: 55, maxMarks: 59,  gradePoints: 6),
+      GradeScale(label: 'C',  minMarks: 50, maxMarks: 54,  gradePoints: 5),
+      GradeScale(label: 'P',  minMarks: 40, maxMarks: 49,  gradePoints: 4),
+      GradeScale(label: 'F',  minMarks: 0,  maxMarks: 39,  gradePoints: 0),
+    ],
+  );
+
+  // ── Anna University — 20 Internal + 80 End-Sem = 100 ─────────────────────
+  static const UniversityPreset annaUniversity = UniversityPreset(
+    id: 'au',
+    name: 'Anna University',
+    shortName: 'Anna (20+80)',
+    internalMax: 20,
+    endSemMax: 80,
+    passMarkInternal: 0,
+    passMarkEndSem: 32,
+    passMarkTotal: 50,
+    gradeScales: [
+      GradeScale(label: 'O',  minMarks: 91, maxMarks: 100, gradePoints: 10),
+      GradeScale(label: 'A+', minMarks: 81, maxMarks: 90,  gradePoints: 9),
+      GradeScale(label: 'A',  minMarks: 71, maxMarks: 80,  gradePoints: 8),
+      GradeScale(label: 'B+', minMarks: 61, maxMarks: 70,  gradePoints: 7),
+      GradeScale(label: 'B',  minMarks: 57, maxMarks: 60,  gradePoints: 6),
+      GradeScale(label: 'C',  minMarks: 50, maxMarks: 56,  gradePoints: 5),
+      GradeScale(label: 'F',  minMarks: 0,  maxMarks: 49,  gradePoints: 0),
+    ],
+  );
+
+  // ── RTM Nagpur University — 40 Internal + 60 End-Sem = 100 ──────────────
+  static const UniversityPreset nagpurUniversity = UniversityPreset(
+    id: 'rtmnu',
+    name: 'RTM Nagpur University',
+    shortName: 'RTMNU (40+60)',
+    internalMax: 40,
+    endSemMax: 60,
+    passMarkInternal: 16,
+    passMarkEndSem: 24,
+    passMarkTotal: 40,
+    gradeScales: [
+      GradeScale(label: 'O',  minMarks: 91, maxMarks: 100, gradePoints: 10),
+      GradeScale(label: 'A+', minMarks: 81, maxMarks: 90,  gradePoints: 9),
+      GradeScale(label: 'A',  minMarks: 71, maxMarks: 80,  gradePoints: 8),
+      GradeScale(label: 'B+', minMarks: 61, maxMarks: 70,  gradePoints: 7),
+      GradeScale(label: 'B',  minMarks: 57, maxMarks: 60,  gradePoints: 6),
+      GradeScale(label: 'C',  minMarks: 50, maxMarks: 56,  gradePoints: 5),
+      GradeScale(label: 'F',  minMarks: 0,  maxMarks: 49,  gradePoints: 0),
+    ],
+  );
+
+  // ── SPPU (Savitribai Phule Pune University) — 30 Internal + 70 End-Sem ───
+  static const UniversityPreset sppu = UniversityPreset(
+    id: 'sppu',
+    name: 'SPPU Pune University',
+    shortName: 'SPPU (30+70)',
+    internalMax: 30,
+    endSemMax: 70,
+    passMarkInternal: 0,
+    passMarkEndSem: 28,
+    passMarkTotal: 40,
+    gradeScales: [
+      GradeScale(label: 'O',  minMarks: 75, maxMarks: 100, gradePoints: 10),
+      GradeScale(label: 'A+', minMarks: 65, maxMarks: 74,  gradePoints: 9),
+      GradeScale(label: 'A',  minMarks: 55, maxMarks: 64,  gradePoints: 8),
+      GradeScale(label: 'B+', minMarks: 50, maxMarks: 54,  gradePoints: 7),
+      GradeScale(label: 'B',  minMarks: 45, maxMarks: 49,  gradePoints: 6),
+      GradeScale(label: 'C',  minMarks: 40, maxMarks: 44,  gradePoints: 5),
+      GradeScale(label: 'F',  minMarks: 0,  maxMarks: 39,  gradePoints: 0),
+    ],
+  );
+
+  // ── JNTU — 30 Internal + 70 End-Sem = 100 ────────────────────────────────
+  static const UniversityPreset jntu = UniversityPreset(
+    id: 'jntu',
+    name: 'JNTU',
+    shortName: 'JNTU (30+70)',
+    internalMax: 30,
+    endSemMax: 70,
+    passMarkInternal: 12,
+    passMarkEndSem: 28,
+    passMarkTotal: 40,
+    gradeScales: [
+      GradeScale(label: 'O',  minMarks: 90, maxMarks: 100, gradePoints: 10),
+      GradeScale(label: 'A+', minMarks: 80, maxMarks: 89,  gradePoints: 9),
+      GradeScale(label: 'A',  minMarks: 70, maxMarks: 79,  gradePoints: 8),
+      GradeScale(label: 'B+', minMarks: 60, maxMarks: 69,  gradePoints: 7),
+      GradeScale(label: 'B',  minMarks: 50, maxMarks: 59,  gradePoints: 6),
+      GradeScale(label: 'C',  minMarks: 40, maxMarks: 49,  gradePoints: 5),
+      GradeScale(label: 'F',  minMarks: 0,  maxMarks: 39,  gradePoints: 0),
+    ],
+  );
+
+  // ── Custom — fully editable ───────────────────────────────────────────────
+  static UniversityPreset custom({
+    double internalMax = 40,
+    double endSemMax = 60,
+    double passMarkTotal = 40,
+  }) =>
+      UniversityPreset(
+        id: 'custom',
+        name: 'Custom',
+        shortName: 'Custom',
+        internalMax: internalMax,
+        endSemMax: endSemMax,
+        passMarkInternal: 0,
+        passMarkEndSem: 0,
+        passMarkTotal: passMarkTotal,
+        gradeScales: [
+          GradeScale(label: 'O',  minMarks: 91, maxMarks: 100, gradePoints: 10),
+          GradeScale(label: 'A+', minMarks: 81, maxMarks: 90,  gradePoints: 9),
+          GradeScale(label: 'A',  minMarks: 71, maxMarks: 80,  gradePoints: 8),
+          GradeScale(label: 'B+', minMarks: 61, maxMarks: 70,  gradePoints: 7),
+          GradeScale(label: 'B',  minMarks: 57, maxMarks: 60,  gradePoints: 6),
+          GradeScale(label: 'C',  minMarks: 50, maxMarks: 56,  gradePoints: 5),
+          GradeScale(label: 'F',  minMarks: 0,  maxMarks: 49,  gradePoints: 0),
+        ],
+      );
+
+  static List<UniversityPreset> get all => [
+    mumbaiUniversity,
+    vtu,
+    annaUniversity,
+    nagpurUniversity,
+    sppu,
+    jntu,
+    custom(),
+  ];
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 1 — MODELS
@@ -56,6 +277,7 @@ class Subject {
   double? expectedInternalMarks;
   double? expectedEndSemMarks;
   bool useExpected;
+  bool hasAttendanceShortage; // NEW: attendance warning flag
 
   Subject({
     required this.id,
@@ -66,6 +288,7 @@ class Subject {
     this.expectedInternalMarks,
     this.expectedEndSemMarks,
     this.useExpected = false,
+    this.hasAttendanceShortage = false,
   });
 
   Subject copyWith({
@@ -76,6 +299,7 @@ class Subject {
     double? expectedInternalMarks,
     double? expectedEndSemMarks,
     bool? useExpected,
+    bool? hasAttendanceShortage,
   }) =>
       Subject(
         id: id,
@@ -83,9 +307,12 @@ class Subject {
         credits: credits ?? this.credits,
         internalMarks: internalMarks ?? this.internalMarks,
         endSemMarks: endSemMarks ?? this.endSemMarks,
-        expectedInternalMarks: expectedInternalMarks ?? this.expectedInternalMarks,
+        expectedInternalMarks:
+        expectedInternalMarks ?? this.expectedInternalMarks,
         expectedEndSemMarks: expectedEndSemMarks ?? this.expectedEndSemMarks,
         useExpected: useExpected ?? this.useExpected,
+        hasAttendanceShortage:
+        hasAttendanceShortage ?? this.hasAttendanceShortage,
       );
 
   Map<String, dynamic> toJson() => {
@@ -97,6 +324,7 @@ class Subject {
     'expectedInternalMarks': expectedInternalMarks,
     'expectedEndSemMarks': expectedEndSemMarks,
     'useExpected': useExpected,
+    'hasAttendanceShortage': hasAttendanceShortage,
   };
 
   factory Subject.fromJson(Map<String, dynamic> json) => Subject(
@@ -105,59 +333,104 @@ class Subject {
     credits: (json['credits'] as num).toDouble(),
     internalMarks: (json['internalMarks'] as num?)?.toDouble(),
     endSemMarks: (json['endSemMarks'] as num?)?.toDouble(),
-    expectedInternalMarks: (json['expectedInternalMarks'] as num?)?.toDouble(),
+    expectedInternalMarks:
+    (json['expectedInternalMarks'] as num?)?.toDouble(),
     expectedEndSemMarks: (json['expectedEndSemMarks'] as num?)?.toDouble(),
     useExpected: json['useExpected'] as bool? ?? false,
+    hasAttendanceShortage: json['hasAttendanceShortage'] as bool? ?? false,
   );
 }
 
+// GradingConfig is now derived from UniversityPreset
 class GradingConfig {
-  final double internalWeight;
-  final double endSemWeight;
   final double internalMax;
   final double endSemMax;
+  final double passMarkTotal;
+  final double passMarkInternal;
+  final double passMarkEndSem;
   final List<GradeScale> gradeScales;
 
   const GradingConfig({
-    required this.internalWeight,
-    required this.endSemWeight,
     required this.internalMax,
     required this.endSemMax,
+    required this.passMarkTotal,
+    required this.passMarkInternal,
+    required this.passMarkEndSem,
     required this.gradeScales,
   });
 
-  static GradingConfig get defaultConfig => const GradingConfig(
-    internalWeight: 40,
-    endSemWeight: 60,
-    internalMax: 40,
-    endSemMax: 60,
-    gradeScales: [
-      GradeScale(label: 'O',  minMarks: 91, maxMarks: 100, gradePoints: 10),
-      GradeScale(label: 'A+', minMarks: 81, maxMarks: 90,  gradePoints: 9),
-      GradeScale(label: 'A',  minMarks: 71, maxMarks: 80,  gradePoints: 8),
-      GradeScale(label: 'B+', minMarks: 61, maxMarks: 70,  gradePoints: 7),
-      GradeScale(label: 'B',  minMarks: 57, maxMarks: 60,  gradePoints: 6),
-      GradeScale(label: 'C',  minMarks: 50, maxMarks: 56,  gradePoints: 5),
-      GradeScale(label: 'F',  minMarks: 0,  maxMarks: 49,  gradePoints: 0),
-    ],
+  double get totalMax => internalMax + endSemMax;
+
+  factory GradingConfig.fromPreset(UniversityPreset p) => GradingConfig(
+    internalMax: p.internalMax,
+    endSemMax: p.endSemMax,
+    passMarkTotal: p.passMarkTotal,
+    passMarkInternal: p.passMarkInternal,
+    passMarkEndSem: p.passMarkEndSem,
+    gradeScales: List.unmodifiable(p.gradeScales),
   );
+
+  static GradingConfig get defaultConfig =>
+      GradingConfig.fromPreset(UniversityPresets.nagpurUniversity);
+
+  Map<String, dynamic> toJson() => {
+    'internalMax': internalMax,
+    'endSemMax': endSemMax,
+    'passMarkTotal': passMarkTotal,
+    'passMarkInternal': passMarkInternal,
+    'passMarkEndSem': passMarkEndSem,
+    'gradeScales': gradeScales.map((g) => g.toJson()).toList(),
+  };
+
+  factory GradingConfig.fromJson(Map<String, dynamic> json) => GradingConfig(
+    internalMax: (json['internalMax'] as num).toDouble(),
+    endSemMax: (json['endSemMax'] as num).toDouble(),
+    passMarkTotal: (json['passMarkTotal'] as num? ?? 40).toDouble(),
+    passMarkInternal: (json['passMarkInternal'] as num? ?? 0).toDouble(),
+    passMarkEndSem: (json['passMarkEndSem'] as num? ?? 0).toDouble(),
+    gradeScales: (json['gradeScales'] as List)
+        .map((e) => GradeScale.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
+
+  GradingConfig copyWithCustomMax({
+    double? internalMax,
+    double? endSemMax,
+    double? passMarkTotal,
+    double? passMarkInternal,
+    double? passMarkEndSem,
+  }) =>
+      GradingConfig(
+        internalMax: internalMax ?? this.internalMax,
+        endSemMax: endSemMax ?? this.endSemMax,
+        passMarkTotal: passMarkTotal ?? this.passMarkTotal,
+        passMarkInternal: passMarkInternal ?? this.passMarkInternal,
+        passMarkEndSem: passMarkEndSem ?? this.passMarkEndSem,
+        gradeScales: gradeScales,
+      );
 }
 
 class SubjectResult {
   final Subject subject;
-  final double totalMarks;
+  final double totalMarks;    // out of totalMax (not always 100)
+  final double totalPct;      // 0–100 percentage
   final String grade;
   final double gradePoints;
   final double weightedPoints;
   final bool isPassing;
+  final bool isAtRisk;        // NEW: close to fail but not failed
+  final bool hasBacklog;      // NEW: failed in previous sem
 
   const SubjectResult({
     required this.subject,
     required this.totalMarks,
+    required this.totalPct,
     required this.grade,
     required this.gradePoints,
     required this.weightedPoints,
     required this.isPassing,
+    required this.isAtRisk,
+    required this.hasBacklog,
   });
 }
 
@@ -167,6 +440,7 @@ class SubjectPrediction {
   final double requiredEndSemMarks;
   final bool isAchievable;
   final String insight;
+  final double difficultyPct; // 0–1 how hard it is
 
   const SubjectPrediction({
     required this.subject,
@@ -174,6 +448,7 @@ class SubjectPrediction {
     required this.requiredEndSemMarks,
     required this.isAchievable,
     required this.insight,
+    required this.difficultyPct,
   });
 }
 
@@ -185,41 +460,65 @@ class SGPACalculator {
   final GradingConfig config;
   const SGPACalculator(this.config);
 
-  double computeTotalMarks(double internal, double endSem) {
-    final normalizedInternal = (internal / config.internalMax) * config.internalWeight;
-    final normalizedEndSem = (endSem / config.endSemMax) * config.endSemWeight;
-    return (normalizedInternal + normalizedEndSem).clamp(0.0, 100.0);
-  }
+  /// Total marks out of config.totalMax
+  double computeTotalMarks(double internal, double endSem) =>
+      (internal + endSem).clamp(0.0, config.totalMax);
 
-  GradeScale resolveGrade(double totalMarks) {
+  /// Percentage 0–100
+  double computeTotalPct(double internal, double endSem) =>
+      (computeTotalMarks(internal, endSem) / config.totalMax) * 100.0;
+
+  GradeScale resolveGrade(double totalPct) {
     for (final scale in config.gradeScales) {
-      if (scale.matches(totalMarks)) return scale;
+      if (scale.matches(totalPct)) return scale;
     }
     return config.gradeScales.last;
   }
 
+  bool _checkPass(double internal, double endSem) {
+    final total = computeTotalMarks(internal, endSem);
+    final pct = (total / config.totalMax) * 100.0;
+    if (config.passMarkInternal > 0 && internal < config.passMarkInternal) {
+      return false;
+    }
+    if (config.passMarkEndSem > 0 && endSem < config.passMarkEndSem) {
+      return false;
+    }
+    return pct >= config.passMarkTotal;
+  }
+
   SubjectResult? computeSubjectResult(Subject subject) {
-    final internal = subject.useExpected ? subject.expectedInternalMarks : subject.internalMarks;
-    final endSem = subject.useExpected ? subject.expectedEndSemMarks : subject.endSemMarks;
+    final internal =
+    subject.useExpected ? subject.expectedInternalMarks : subject.internalMarks;
+    final endSem =
+    subject.useExpected ? subject.expectedEndSemMarks : subject.endSemMarks;
     if (internal == null || endSem == null) return null;
 
     final total = computeTotalMarks(internal, endSem);
-    final scale = resolveGrade(total);
+    final pct = computeTotalPct(internal, endSem);
+    final scale = resolveGrade(pct);
+    final passing = _checkPass(internal, endSem);
+    final atRisk = passing && pct < (config.passMarkTotal + 8);
 
     return SubjectResult(
       subject: subject,
       totalMarks: total,
+      totalPct: pct,
       grade: scale.label,
       gradePoints: scale.gradePoints,
       weightedPoints: subject.credits * scale.gradePoints,
-      isPassing: scale.gradePoints > 0,
+      isPassing: passing,
+      isAtRisk: atRisk,
+      hasBacklog: false,
     );
   }
 
   double? calculateSGPA(List<Subject> subjects) {
-    final results = subjects.map(computeSubjectResult).whereType<SubjectResult>().toList();
+    final results =
+    subjects.map(computeSubjectResult).whereType<SubjectResult>().toList();
     if (results.isEmpty) return null;
-    final totalWeightedPoints = results.fold(0.0, (sum, r) => sum + r.weightedPoints);
+    final totalWeightedPoints =
+    results.fold(0.0, (sum, r) => sum + r.weightedPoints);
     final totalCredits = results.fold(0.0, (sum, r) => sum + r.subject.credits);
     if (totalCredits == 0) return null;
     return totalWeightedPoints / totalCredits;
@@ -233,10 +532,14 @@ class SGPACalculator {
     final allSemesters = [
       ...prevSemesters,
       if (currentSGPA != null)
-        (currentSGPA, currentSubjects.fold(0.0, (s, sub) => s + sub.credits)),
+        (
+        currentSGPA,
+        currentSubjects.fold(0.0, (s, sub) => s + sub.credits)
+        ),
     ];
     if (allSemesters.isEmpty) return null;
-    final totalWeighted = allSemesters.fold(0.0, (sum, sem) => sum + (sem.$1 * sem.$2));
+    final totalWeighted =
+    allSemesters.fold(0.0, (sum, sem) => sum + (sem.$1 * sem.$2));
     final totalCredits = allSemesters.fold(0.0, (sum, sem) => sum + sem.$2);
     if (totalCredits == 0) return null;
     return totalWeighted / totalCredits;
@@ -258,26 +561,49 @@ class PredictionEngine {
           (s) => s.label == targetGradeLabel,
       orElse: () => config.gradeScales.last,
     );
-    final internal = subject.internalMarks ?? subject.expectedInternalMarks ?? 0.0;
-    final internalContribution = (internal / config.internalMax) * config.internalWeight;
-    final requiredEndSemNormalized = targetScale.minMarks - internalContribution;
-    final requiredEndSem = (requiredEndSemNormalized / config.endSemWeight) * config.endSemMax;
+    final internal =
+        subject.internalMarks ?? subject.expectedInternalMarks ?? 0.0;
+
+    // Total needed (out of totalMax) = (targetMinPct / 100) * totalMax
+    final totalNeeded = (targetScale.minMarks / 100.0) * config.totalMax;
+    final requiredEndSem = totalNeeded - internal;
     final clamped = requiredEndSem.clamp(0.0, config.endSemMax);
     final isAchievable = requiredEndSem <= config.endSemMax;
+    final difficultyPct = (clamped / config.endSemMax).clamp(0.0, 1.0);
 
     return SubjectPrediction(
       subject: subject,
       targetGrade: targetGradeLabel,
       requiredEndSemMarks: clamped,
       isAchievable: isAchievable,
-      insight: _buildInsight(subject.name, targetGradeLabel, clamped, isAchievable, internal),
+      difficultyPct: difficultyPct,
+      insight: _buildInsight(
+        subject.name,
+        targetGradeLabel,
+        clamped,
+        isAchievable,
+        internal,
+      ),
     );
   }
 
-  String _buildInsight(String subjectName, String grade, double required, bool achievable, double internal) {
-    if (!achievable) return '❌ $subjectName: $grade grade not achievable with internal $internal/${config.internalMax}.';
-    if (required >= config.endSemMax * 0.95) return '⚠️ $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — very tough for $grade.';
-    if (required >= config.endSemMax * 0.75) return '🟡 $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — moderate effort for $grade.';
+  String _buildInsight(
+      String subjectName,
+      String grade,
+      double required,
+      bool achievable,
+      double internal,
+      ) {
+    if (!achievable) {
+      return '❌ $subjectName: $grade not achievable (internal ${internal.toStringAsFixed(1)}/${config.internalMax.toStringAsFixed(0)} too low).';
+    }
+    final pct = required / config.endSemMax;
+    if (pct >= 0.95) {
+      return '🔴 $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — very tough for $grade.';
+    }
+    if (pct >= 0.75) {
+      return '🟡 $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — moderate effort for $grade.';
+    }
     return '✅ $subjectName: Need ${required.toStringAsFixed(1)}/${config.endSemMax.toStringAsFixed(0)} — achievable for $grade.';
   }
 
@@ -288,19 +614,19 @@ class PredictionEngine {
     required double currentSemesterCredits,
   }) {
     final total = completedCredits + currentSemesterCredits;
-    final required = (targetCGPA * total - currentCGPA * completedCredits) / currentSemesterCredits;
+    final required =
+        (targetCGPA * total - currentCGPA * completedCredits) /
+            currentSemesterCredits;
     return required.clamp(0.0, 10.0);
   }
 
   List<SubjectPrediction> suggestMarksForTargetSGPA({
     required List<Subject> subjects,
     required double targetSGPA,
-    String preferredTargetGrade = 'A+',
   }) {
-    final neededGradePoints = targetSGPA;
     GradeScale targetScale = config.gradeScales.last;
     for (final scale in config.gradeScales) {
-      if (scale.gradePoints >= neededGradePoints) {
+      if (scale.gradePoints >= targetSGPA) {
         targetScale = scale;
         break;
       }
@@ -314,17 +640,34 @@ class PredictionEngine {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ResultPredictionProvider extends ChangeNotifier {
+  // ── Grading config ────────────────────────────────────────────────────────
   GradingConfig _gradingConfig = GradingConfig.defaultConfig;
   GradingConfig get gradingConfig => _gradingConfig;
 
+  String _selectedPresetId = 'rtmnu';
+  String get selectedPresetId => _selectedPresetId;
+
+  // Custom fields (only used when preset == 'custom')
+  double _customInternalMax = 40;
+  double _customEndSemMax = 60;
+  double _customPassMark = 40;
+  double get customInternalMax => _customInternalMax;
+  double get customEndSemMax => _customEndSemMax;
+  double get customPassMark => _customPassMark;
+
+  // ── Subjects ──────────────────────────────────────────────────────────────
   List<Subject> _subjects = [];
   List<Subject> get subjects => List.unmodifiable(_subjects);
 
+  // ── Semester context ─────────────────────────────────────────────────────
+  int _currentSemester = 3;
   double _previousCGPA = 0.0;
   double _completedCredits = 0.0;
+  int get currentSemester => _currentSemester;
   double get previousCGPA => _previousCGPA;
   double get completedCredits => _completedCredits;
 
+  // ── Targets ───────────────────────────────────────────────────────────────
   String _targetGradeLabel = 'A+';
   double _targetCGPA = 8.5;
   String get targetGradeLabel => _targetGradeLabel;
@@ -334,10 +677,14 @@ class ResultPredictionProvider extends ChangeNotifier {
   late PredictionEngine _predictionEngine;
 
   ResultPredictionProvider() {
-    _sgpaCalculator = SGPACalculator(_gradingConfig);
-    _predictionEngine = PredictionEngine(_gradingConfig);
+    _rebuild();
     _loadFromPrefs();
     _initDefaultSubjects();
+  }
+
+  void _rebuild() {
+    _sgpaCalculator = SGPACalculator(_gradingConfig);
+    _predictionEngine = PredictionEngine(_gradingConfig);
   }
 
   void _initDefaultSubjects() {
@@ -352,7 +699,47 @@ class ResultPredictionProvider extends ChangeNotifier {
   }
 
   String _uid() =>
-      DateTime.now().microsecondsSinceEpoch.toString() + Random().nextInt(9999).toString();
+      DateTime.now().microsecondsSinceEpoch.toString() +
+          Random().nextInt(9999).toString();
+
+  // ── Preset / config setters ───────────────────────────────────────────────
+
+  void applyPreset(String presetId) {
+    _selectedPresetId = presetId;
+    if (presetId == 'custom') {
+      _gradingConfig = UniversityPresets.custom(
+        internalMax: _customInternalMax,
+        endSemMax: _customEndSemMax,
+        passMarkTotal: _customPassMark,
+      ).toGradingConfig();
+    } else {
+      final preset = UniversityPresets.all.firstWhere(
+            (p) => p.id == presetId,
+        orElse: () => UniversityPresets.nagpurUniversity,
+      );
+      _gradingConfig = GradingConfig.fromPreset(preset);
+    }
+    _rebuild();
+    _save();
+    notifyListeners();
+  }
+
+  void setCustomInternalMax(double val) {
+    _customInternalMax = val.clamp(10, 100);
+    if (_selectedPresetId == 'custom') applyPreset('custom');
+  }
+
+  void setCustomEndSemMax(double val) {
+    _customEndSemMax = val.clamp(10, 100);
+    if (_selectedPresetId == 'custom') applyPreset('custom');
+  }
+
+  void setCustomPassMark(double val) {
+    _customPassMark = val.clamp(20, 60);
+    if (_selectedPresetId == 'custom') applyPreset('custom');
+  }
+
+  // ── Computed getters ──────────────────────────────────────────────────────
 
   List<SubjectResult?> get subjectResults =>
       _subjects.map(_sgpaCalculator.computeSubjectResult).toList();
@@ -360,8 +747,6 @@ class ResultPredictionProvider extends ChangeNotifier {
   double? get currentSGPA => _sgpaCalculator.calculateSGPA(_subjects);
 
   double? get predictedCGPA {
-    final sgpa = currentSGPA;
-    if (sgpa == null && _completedCredits == 0) return null;
     final semCredits = _subjects.fold(0.0, (s, sub) => s + sub.credits);
     final prevSemesters = _completedCredits > 0
         ? [(_previousCGPA, _completedCredits)]
@@ -369,10 +754,21 @@ class ResultPredictionProvider extends ChangeNotifier {
     return _sgpaCalculator.calculateCGPA(prevSemesters, _subjects);
   }
 
+  double get totalCreditLoad =>
+      _subjects.fold(0.0, (s, sub) => s + sub.credits);
+
+  double get avgCreditLoad => _subjects.isEmpty ? 0.0 : totalCreditLoad / _subjects.length;
+
   Subject? get mostImpactfulSubject {
     if (_subjects.isEmpty) return null;
     return _subjects.reduce((a, b) => a.credits > b.credits ? a : b);
   }
+
+  int get subjectsAtRisk =>
+      subjectResults.whereType<SubjectResult>().where((r) => r.isAtRisk || !r.isPassing).length;
+
+  int get attendanceShortageCount =>
+      _subjects.where((s) => s.hasAttendanceShortage).length;
 
   List<SubjectPrediction> get targetGradePredictions => _subjects
       .map((s) => _predictionEngine.predictForTargetGrade(s, _targetGradeLabel))
@@ -395,8 +791,11 @@ class ResultPredictionProvider extends ChangeNotifier {
         targetSGPA: requiredSGPAForTarget,
       );
 
+  // ── Subject mutators ──────────────────────────────────────────────────────
+
   void addSubject() {
-    _subjects.add(Subject(id: _uid(), name: 'Subject ${_subjects.length + 1}', credits: 3));
+    _subjects.add(
+        Subject(id: _uid(), name: 'Subject ${_subjects.length + 1}', credits: 3));
     _save();
     notifyListeners();
   }
@@ -407,18 +806,49 @@ class ResultPredictionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateSubjectName(String id, String name) => _mutate(id, (s) => s.copyWith(name: name));
-  void updateSubjectCredits(String id, double credits) => _mutate(id, (s) => s.copyWith(credits: credits));
-  void updateInternalMarks(String id, double? marks) => _mutate(id, (s) => s.copyWith(internalMarks: marks));
-  void updateEndSemMarks(String id, double? marks) => _mutate(id, (s) => s.copyWith(endSemMarks: marks));
-  void updateExpectedInternalMarks(String id, double? marks) => _mutate(id, (s) => s.copyWith(expectedInternalMarks: marks));
-  void updateExpectedEndSemMarks(String id, double? marks) => _mutate(id, (s) => s.copyWith(expectedEndSemMarks: marks));
-  void toggleUseExpected(String id, bool value) => _mutate(id, (s) => s.copyWith(useExpected: value));
+  void updateSubjectName(String id, String name) =>
+      _mutate(id, (s) => s.copyWith(name: name));
+  void updateSubjectCredits(String id, double credits) =>
+      _mutate(id, (s) => s.copyWith(credits: credits));
+  void updateInternalMarks(String id, double? marks) =>
+      _mutate(id, (s) => s.copyWith(internalMarks: marks));
+  void updateEndSemMarks(String id, double? marks) =>
+      _mutate(id, (s) => s.copyWith(endSemMarks: marks));
+  void updateExpectedInternalMarks(String id, double? marks) =>
+      _mutate(id, (s) => s.copyWith(expectedInternalMarks: marks));
+  void updateExpectedEndSemMarks(String id, double? marks) =>
+      _mutate(id, (s) => s.copyWith(expectedEndSemMarks: marks));
+  void toggleUseExpected(String id, bool value) =>
+      _mutate(id, (s) => s.copyWith(useExpected: value));
+  void toggleAttendanceShortage(String id, bool value) =>
+      _mutate(id, (s) => s.copyWith(hasAttendanceShortage: value));
 
-  void setPreviousCGPA(double val) { _previousCGPA = val.clamp(0.0, 10.0); _save(); notifyListeners(); }
-  void setCompletedCredits(double val) { _completedCredits = val.clamp(0.0, 500.0); _save(); notifyListeners(); }
-  void setTargetGradeLabel(String label) { _targetGradeLabel = label; notifyListeners(); }
-  void setTargetCGPA(double val) { _targetCGPA = val.clamp(0.0, 10.0); notifyListeners(); }
+  void setPreviousCGPA(double val) {
+    _previousCGPA = val.clamp(0.0, 10.0);
+    _save();
+    notifyListeners();
+  }
+
+  void setCompletedCredits(double val) {
+    _completedCredits = val.clamp(0.0, 500.0);
+    _save();
+    notifyListeners();
+  }
+
+  void setCurrentSemester(int sem) {
+    _currentSemester = sem.clamp(1, 8);
+    notifyListeners();
+  }
+
+  void setTargetGradeLabel(String label) {
+    _targetGradeLabel = label;
+    notifyListeners();
+  }
+
+  void setTargetCGPA(double val) {
+    _targetCGPA = val.clamp(0.0, 10.0);
+    notifyListeners();
+  }
 
   void _mutate(String id, Subject Function(Subject) updater) {
     final idx = _subjects.indexWhere((s) => s.id == id);
@@ -435,15 +865,21 @@ class ResultPredictionProvider extends ChangeNotifier {
         'subjects': _subjects.map((s) => s.toJson()).toList(),
         'previousCGPA': _previousCGPA,
         'completedCredits': _completedCredits,
+        'currentSemester': _currentSemester,
+        'selectedPresetId': _selectedPresetId,
+        'customInternalMax': _customInternalMax,
+        'customEndSemMax': _customEndSemMax,
+        'customPassMark': _customPassMark,
+        'gradingConfig': _gradingConfig.toJson(),
       };
-      await prefs.setString('result_prediction_data', jsonEncode(data));
+      await prefs.setString('result_prediction_data_v2', jsonEncode(data));
     } catch (_) {}
   }
 
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('result_prediction_data');
+      final raw = prefs.getString('result_prediction_data_v2');
       if (raw == null) return;
       final data = jsonDecode(raw) as Map<String, dynamic>;
       _subjects = (data['subjects'] as List)
@@ -451,6 +887,17 @@ class ResultPredictionProvider extends ChangeNotifier {
           .toList();
       _previousCGPA = (data['previousCGPA'] as num?)?.toDouble() ?? 0.0;
       _completedCredits = (data['completedCredits'] as num?)?.toDouble() ?? 0.0;
+      _currentSemester = (data['currentSemester'] as int?) ?? 3;
+      _selectedPresetId = (data['selectedPresetId'] as String?) ?? 'rtmnu';
+      _customInternalMax = (data['customInternalMax'] as num?)?.toDouble() ?? 40;
+      _customEndSemMax = (data['customEndSemMax'] as num?)?.toDouble() ?? 60;
+      _customPassMark = (data['customPassMark'] as num?)?.toDouble() ?? 40;
+
+      if (data['gradingConfig'] != null) {
+        _gradingConfig = GradingConfig.fromJson(
+            data['gradingConfig'] as Map<String, dynamic>);
+      }
+      _rebuild();
       notifyListeners();
     } catch (_) {}
   }
@@ -459,29 +906,32 @@ class ResultPredictionProvider extends ChangeNotifier {
     _subjects.clear();
     _previousCGPA = 0.0;
     _completedCredits = 0.0;
+    _currentSemester = 3;
     _initDefaultSubjects();
     _save();
     notifyListeners();
   }
 }
 
+// helper extension
+extension _PresetToConfig on UniversityPreset {
+  GradingConfig toGradingConfig() => GradingConfig.fromPreset(this);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 5 — THEME & DESIGN TOKENS
-// Red/Rose accent palette with full light/dark mode support
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AppTheme {
-  // ── Red/Rose accent — same in both modes ──────────────────────────────────
-  static const Color accent      = Color(0xFFE53935); // vivid red
-  static const Color accentLight = Color(0xFFFF6B6B); // soft rose
-  static const Color accentDark  = Color(0xFFB71C1C); // deep red
+  static const Color accent      = Color(0xFFE53935);
+  static const Color accentLight = Color(0xFFFF6B6B);
+  static const Color accentDark  = Color(0xFFB71C1C);
 
-  // ── Status colors ─────────────────────────────────────────────────────────
   static const Color green  = Color(0xFF29D6A4);
   static const Color yellow = Color(0xFFFFBB38);
   static const Color red    = Color(0xFFFF5C7A);
+  static const Color blue   = Color(0xFF5DADE2);
 
-  // ── Dark palette ──────────────────────────────────────────────────────────
   static const Color _darkBg              = Color(0xFF0F0E17);
   static const Color _darkSurface         = Color(0xFF1A1520);
   static const Color _darkSurfaceElevated = Color(0xFF241D2B);
@@ -489,19 +939,15 @@ class _AppTheme {
   static const Color _darkTextSecondary   = Color(0xFF9A8FAA);
   static const Color _darkBorder          = Color(0xFF2E2538);
 
-  // ── Light palette ─────────────────────────────────────────────────────────
-  static const Color _lightBg              = Color(0xFFFFF5F5); // very light rose tint
+  static const Color _lightBg              = Color(0xFFFFF5F5);
   static const Color _lightSurface         = Color(0xFFFFFFFF);
-  static const Color _lightSurfaceElevated = Color(0xFFFFF0F0); // warm off-white
+  static const Color _lightSurfaceElevated = Color(0xFFFFF0F0);
   static const Color _lightTextPrimary     = Color(0xFF1A0A0A);
   static const Color _lightTextSecondary   = Color(0xFF7A5A5A);
   static const Color _lightBorder          = Color(0xFFFFD6D6);
 
-  // ── Adaptive getters ──────────────────────────────────────────────────────
-  static Color bg(bool isDark) =>
-      isDark ? _darkBg : _lightBg;
-  static Color surface(bool isDark) =>
-      isDark ? _darkSurface : _lightSurface;
+  static Color bg(bool isDark) => isDark ? _darkBg : _lightBg;
+  static Color surface(bool isDark) => isDark ? _darkSurface : _lightSurface;
   static Color surfaceElevated(bool isDark) =>
       isDark ? _darkSurfaceElevated : _lightSurfaceElevated;
   static Color textPrimary(bool isDark) =>
@@ -511,26 +957,25 @@ class _AppTheme {
   static Color border(bool isDark) =>
       isDark ? _darkBorder : _lightBorder;
 
-  // ── Summary banner gradient adapts to mode ────────────────────────────────
   static List<Color> bannerGradient(bool isDark) => isDark
       ? [const Color(0xFF2A0A0A), const Color(0xFF1A1520)]
       : [const Color(0xFFFFE5E5), const Color(0xFFFFF0F0)];
 
-  static Color statusColor(double marks, double maxMarks) {
-    final pct = marks / maxMarks;
-    if (pct >= 0.85) return green;
-    if (pct >= 0.65) return yellow;
+  static Color statusColor(double pct) {
+    if (pct >= 0.75) return green;
+    if (pct >= 0.55) return yellow;
     return red;
   }
 
   static Color gradeColor(String grade) {
     switch (grade) {
-      case 'O':  return green;
+      case 'O':          return green;
       case 'A+':
-      case 'A':  return const Color(0xFF5DADE2);
+      case 'A':          return blue;
       case 'B+':
-      case 'B':  return yellow;
-      default:   return red;
+      case 'B':          return yellow;
+      case 'P':          return const Color(0xFFAD8CFF);
+      default:           return red;
     }
   }
 
@@ -607,7 +1052,6 @@ class _ResultScreenState extends State<ResultScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Read ThemeProvider from your app's global provider
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
 
@@ -661,7 +1105,6 @@ class _ResultScreenState extends State<ResultScreen>
         ),
       ),
       actions: [
-        // ── Dark Mode Toggle (matches HomeScreen style) ──────────────────
         GestureDetector(
           onTap: () => themeProvider.toggleTheme(),
           child: AnimatedContainer(
@@ -692,7 +1135,8 @@ class _ResultScreenState extends State<ResultScreen>
             child: AnimatedAlign(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut,
-              alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
+              alignment:
+              isDark ? Alignment.centerRight : Alignment.centerLeft,
               child: Container(
                 width: 22,
                 height: 22,
@@ -711,7 +1155,6 @@ class _ResultScreenState extends State<ResultScreen>
             ),
           ),
         ),
-        // ── Reset Button ─────────────────────────────────────────────────
         Consumer<ResultPredictionProvider>(
           builder: (context, provider, _) => IconButton(
             icon: Icon(Icons.refresh_rounded,
@@ -735,11 +1178,8 @@ class _ResultScreenState extends State<ResultScreen>
       child: TabBar(
         controller: _tabController,
         indicator: BoxDecoration(
-          // Red gradient tab indicator
           gradient: const LinearGradient(
             colors: [Color(0xFFE53935), Color(0xFFFF6B6B)],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
           ),
           borderRadius: BorderRadius.circular(10),
         ),
@@ -761,7 +1201,6 @@ class _ResultScreenState extends State<ResultScreen>
     return Consumer<ResultPredictionProvider>(
       builder: (context, provider, _) => FloatingActionButton.extended(
         onPressed: provider.addSubject,
-        // Red gradient FAB
         backgroundColor: Colors.transparent,
         elevation: 0,
         extendedPadding: EdgeInsets.zero,
@@ -798,8 +1237,8 @@ class _ResultScreenState extends State<ResultScreen>
     );
   }
 
-  void _confirmReset(
-      BuildContext context, ResultPredictionProvider provider, bool isDark) {
+  void _confirmReset(BuildContext context, ResultPredictionProvider provider,
+      bool isDark) {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -844,6 +1283,10 @@ class _SummaryBanner extends StatelessWidget {
       builder: (context, provider, _) {
         final sgpa = provider.currentSGPA;
         final cgpa = provider.predictedCGPA;
+        final creditLoad = provider.totalCreditLoad;
+        final atRisk = provider.subjectsAtRisk;
+        final attnShortage = provider.attendanceShortageCount;
+        final config = provider.gradingConfig;
 
         return Container(
           margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -857,33 +1300,84 @@ class _SummaryBanner extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: _AppTheme.accent.withOpacity(0.3)),
           ),
-          child: Row(
+          child: Column(
             children: [
-              _StatPill(
-                label: 'SGPA',
-                value: sgpa != null ? sgpa.toStringAsFixed(2) : '--',
-                color: sgpa != null ? _sgpaColor(sgpa) : _AppTheme.textSecondary(isDark),
-                isDark: isDark,
+              Row(
+                children: [
+                  _StatPill(
+                    label: 'SGPA',
+                    value: sgpa != null ? sgpa.toStringAsFixed(2) : '--',
+                    color: sgpa != null
+                        ? _sgpaColor(sgpa)
+                        : _AppTheme.textSecondary(isDark),
+                    isDark: isDark,
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                      width: 1,
+                      height: 40,
+                      color: _AppTheme.border(isDark)),
+                  const SizedBox(width: 12),
+                  _StatPill(
+                    label: 'Pred. CGPA',
+                    value: cgpa != null ? cgpa.toStringAsFixed(2) : '--',
+                    color: cgpa != null
+                        ? _sgpaColor(cgpa)
+                        : _AppTheme.textSecondary(isDark),
+                    isDark: isDark,
+                  ),
+                  const Spacer(),
+                  // Scheme badge
+                  _SchemeBadge(config: config, isDark: isDark),
+                ],
               ),
-              const SizedBox(width: 12),
-              Container(
-                  width: 1,
-                  height: 40,
-                  color: _AppTheme.border(isDark)),
-              const SizedBox(width: 12),
-              _StatPill(
-                label: 'Predicted CGPA',
-                value: cgpa != null ? cgpa.toStringAsFixed(2) : '--',
-                color: cgpa != null ? _sgpaColor(cgpa) : _AppTheme.textSecondary(isDark),
-                isDark: isDark,
+              const SizedBox(height: 10),
+              // Credit load bar
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text('Credit Load: ',
+                          style: TextStyle(
+                              color: _AppTheme.textSecondary(isDark),
+                              fontSize: 11)),
+                      Text('${creditLoad.toStringAsFixed(0)} credits',
+                          style: TextStyle(
+                              color: _AppTheme.textPrimary(isDark),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11)),
+                      const Spacer(),
+                      if (atRisk > 0)
+                        _StatusChip(
+                            label: '⚠ $atRisk at risk',
+                            color: _AppTheme.yellow),
+                      if (attnShortage > 0) ...[
+                        const SizedBox(width: 6),
+                        _StatusChip(
+                            label: '📵 $attnShortage attendance',
+                            color: _AppTheme.red),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: (creditLoad / 30.0).clamp(0.0, 1.0),
+                      minHeight: 5,
+                      backgroundColor: _AppTheme.border(isDark),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        creditLoad > 24
+                            ? _AppTheme.red
+                            : creditLoad > 18
+                            ? _AppTheme.yellow
+                            : _AppTheme.green,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const Spacer(),
-              if (provider.mostImpactfulSubject != null)
-                _HighlightChip(
-                  label: '⭐ ${provider.mostImpactfulSubject!.name}',
-                  subtitle: '${provider.mostImpactfulSubject!.credits} credits',
-                  isDark: isDark,
-                ),
             ],
           ),
         );
@@ -895,6 +1389,60 @@ class _SummaryBanner extends StatelessWidget {
     if (val >= 8.5) return _AppTheme.green;
     if (val >= 7.0) return _AppTheme.yellow;
     return _AppTheme.red;
+  }
+}
+
+class _SchemeBadge extends StatelessWidget {
+  final GradingConfig config;
+  final bool isDark;
+  const _SchemeBadge({required this.config, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: _AppTheme.accent.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _AppTheme.accent.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            '${config.internalMax.toStringAsFixed(0)}+${config.endSemMax.toStringAsFixed(0)}',
+            style: const TextStyle(
+                color: _AppTheme.accentLight,
+                fontSize: 12,
+                fontWeight: FontWeight.w800),
+          ),
+          Text('scheme',
+              style: TextStyle(
+                  color: _AppTheme.textSecondary(isDark), fontSize: 9)),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _StatusChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.35)),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              color: color, fontSize: 10, fontWeight: FontWeight.w600)),
+    );
   }
 }
 
@@ -927,39 +1475,6 @@ class _StatPill extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.5)),
       ],
-    );
-  }
-}
-
-class _HighlightChip extends StatelessWidget {
-  final String label;
-  final String subtitle;
-  final bool isDark;
-  const _HighlightChip(
-      {required this.label, required this.subtitle, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: _AppTheme.accent.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _AppTheme.accent.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label,
-              style: const TextStyle(
-                  color: _AppTheme.accentLight,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600)),
-          Text(subtitle,
-              style: TextStyle(
-                  color: _AppTheme.textSecondary(isDark), fontSize: 10)),
-        ],
-      ),
     );
   }
 }
@@ -1035,11 +1550,16 @@ class _SubjectCardState extends State<_SubjectCard> {
     super.initState();
     final s = widget.subject;
     _nameCtrl = TextEditingController(text: s.name);
-    _creditsCtrl = TextEditingController(text: s.credits.toStringAsFixed(0));
-    _internalCtrl = TextEditingController(text: s.internalMarks?.toStringAsFixed(1) ?? '');
-    _endSemCtrl = TextEditingController(text: s.endSemMarks?.toStringAsFixed(1) ?? '');
-    _expInternalCtrl = TextEditingController(text: s.expectedInternalMarks?.toStringAsFixed(1) ?? '');
-    _expEndSemCtrl = TextEditingController(text: s.expectedEndSemMarks?.toStringAsFixed(1) ?? '');
+    _creditsCtrl =
+        TextEditingController(text: s.credits.toStringAsFixed(0));
+    _internalCtrl = TextEditingController(
+        text: s.internalMarks?.toStringAsFixed(1) ?? '');
+    _endSemCtrl = TextEditingController(
+        text: s.endSemMarks?.toStringAsFixed(1) ?? '');
+    _expInternalCtrl = TextEditingController(
+        text: s.expectedInternalMarks?.toStringAsFixed(1) ?? '');
+    _expEndSemCtrl = TextEditingController(
+        text: s.expectedEndSemMarks?.toStringAsFixed(1) ?? '');
   }
 
   @override
@@ -1060,6 +1580,7 @@ class _SubjectCardState extends State<_SubjectCard> {
     final isMost = widget.isMostImpactful;
     final p = widget.provider;
     final isDark = widget.isDark;
+    final config = widget.config;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
@@ -1068,10 +1589,12 @@ class _SubjectCardState extends State<_SubjectCard> {
         color: _AppTheme.surface(isDark),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isMost
+          color: s.hasAttendanceShortage
+              ? _AppTheme.red.withOpacity(0.5)
+              : isMost
               ? _AppTheme.accent.withOpacity(0.5)
               : _AppTheme.border(isDark),
-          width: isMost ? 1.5 : 1,
+          width: (isMost || s.hasAttendanceShortage) ? 1.5 : 1,
         ),
       ),
       child: Column(
@@ -1079,23 +1602,26 @@ class _SubjectCardState extends State<_SubjectCard> {
           // ── Header ────────────────────────────────────────────────────────
           InkWell(
             onTap: () => setState(() => _expanded = !_expanded),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(16)),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
                   if (isMost)
-                    Container(
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: _AppTheme.accent.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text('⭐ Top',
-                          style: TextStyle(
-                              color: _AppTheme.accentLight, fontSize: 10)),
-                    ),
+                    _MiniChip(
+                        label: '⭐ Top',
+                        bg: _AppTheme.accent.withOpacity(0.15),
+                        text: _AppTheme.accentLight),
+                  if (s.hasAttendanceShortage) ...[
+                    if (isMost) const SizedBox(width: 4),
+                    _MiniChip(
+                        label: '📵 Attn',
+                        bg: _AppTheme.red.withOpacity(0.12),
+                        text: _AppTheme.red),
+                  ],
+                  if (isMost || s.hasAttendanceShortage)
+                    const SizedBox(width: 6),
                   Expanded(
                     child: Text(s.name,
                         style: TextStyle(
@@ -1104,15 +1630,40 @@ class _SubjectCardState extends State<_SubjectCard> {
                             fontSize: 14)),
                   ),
                   if (r != null) ...[
+                    // Risk badge
+                    if (!r.isPassing)
+                      _MiniChip(
+                          label: 'FAIL',
+                          bg: _AppTheme.red.withOpacity(0.15),
+                          text: _AppTheme.red),
+                    if (r.isAtRisk && r.isPassing)
+                      _MiniChip(
+                          label: 'AT RISK',
+                          bg: _AppTheme.yellow.withOpacity(0.15),
+                          text: _AppTheme.yellow),
+                    const SizedBox(width: 6),
                     _GradeBadge(grade: r.grade),
-                    const SizedBox(width: 8),
-                    Text(r.totalMarks.toStringAsFixed(1),
-                        style: TextStyle(
-                            color: _AppTheme.statusColor(r.totalMarks, 100),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16)),
+                    const SizedBox(width: 6),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${r.totalMarks.toStringAsFixed(1)}/${config.totalMax.toStringAsFixed(0)}',
+                          style: TextStyle(
+                              color: _AppTheme.statusColor(r.totalPct / 100),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13),
+                        ),
+                        Text(
+                          '${r.totalPct.toStringAsFixed(1)}%',
+                          style: TextStyle(
+                              color: _AppTheme.textSecondary(isDark),
+                              fontSize: 10),
+                        ),
+                      ],
+                    ),
                   ],
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   Icon(
                     _expanded ? Icons.expand_less : Icons.expand_more,
                     color: _AppTheme.textSecondary(isDark),
@@ -1130,7 +1681,6 @@ class _SubjectCardState extends State<_SubjectCard> {
             ),
           ),
 
-          // ── Expanded body ─────────────────────────────────────────────────
           if (_expanded) ...[
             Divider(color: _AppTheme.border(isDark), height: 1),
             Padding(
@@ -1165,76 +1715,90 @@ class _SubjectCardState extends State<_SubjectCard> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Text('Use Expected Marks (What-If)',
-                          style: TextStyle(
-                              color: _AppTheme.textSecondary(isDark),
-                              fontSize: 12)),
-                      const Spacer(),
-                      Switch(
-                        value: s.useExpected,
-                        onChanged: (v) => p.toggleUseExpected(s.id, v),
-                        activeColor: _AppTheme.accent,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ],
+                  const SizedBox(height: 10),
+                  // Attendance toggle row
+                  _ToggleRow(
+                    label: '📵 Attendance shortage (<75%)',
+                    sublabel: 'Flags this subject for attendance risk',
+                    value: s.hasAttendanceShortage,
+                    activeColor: _AppTheme.red,
+                    isDark: isDark,
+                    onChanged: (v) => p.toggleAttendanceShortage(s.id, v),
                   ),
                   const SizedBox(height: 8),
-                  _SectionLabel('📝 Actual Marks',
-                      active: !s.useExpected, isDark: isDark),
+                  _ToggleRow(
+                    label: '🔮 Use Expected Marks (What-If)',
+                    sublabel: 'Simulate future marks',
+                    value: s.useExpected,
+                    activeColor: _AppTheme.accent,
+                    isDark: isDark,
+                    onChanged: (v) => p.toggleUseExpected(s.id, v),
+                  ),
+                  const SizedBox(height: 12),
+                  // Pass mark info banner
+                  _PassMarkBanner(config: config, isDark: isDark),
+                  const SizedBox(height: 12),
+                  _SectionLabel(
+                      '📝 Actual Marks',
+                      active: !s.useExpected,
+                      isDark: isDark),
                   const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
                         child: _MarkInput(
-                          label: 'Internal (/${widget.config.internalMax.toStringAsFixed(0)})',
+                          label: 'Internal (/${config.internalMax.toStringAsFixed(0)})',
                           controller: _internalCtrl,
-                          maxVal: widget.config.internalMax,
+                          maxVal: config.internalMax,
                           enabled: !s.useExpected,
                           isDark: isDark,
-                          onChanged: (v) => p.updateInternalMarks(s.id, double.tryParse(v)),
+                          onChanged: (v) =>
+                              p.updateInternalMarks(s.id, double.tryParse(v)),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: _MarkInput(
-                          label: 'End-Sem (/${widget.config.endSemMax.toStringAsFixed(0)})',
+                          label: 'End-Sem (/${config.endSemMax.toStringAsFixed(0)})',
                           controller: _endSemCtrl,
-                          maxVal: widget.config.endSemMax,
+                          maxVal: config.endSemMax,
                           enabled: !s.useExpected,
                           isDark: isDark,
-                          onChanged: (v) => p.updateEndSemMarks(s.id, double.tryParse(v)),
+                          onChanged: (v) =>
+                              p.updateEndSemMarks(s.id, double.tryParse(v)),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _SectionLabel('🔮 Expected Marks (Simulation)',
-                      active: s.useExpected, isDark: isDark),
+                  _SectionLabel(
+                      '🔮 Expected Marks (Simulation)',
+                      active: s.useExpected,
+                      isDark: isDark),
                   const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
                         child: _MarkInput(
-                          label: 'Exp. Internal (/${widget.config.internalMax.toStringAsFixed(0)})',
+                          label: 'Exp. Internal (/${config.internalMax.toStringAsFixed(0)})',
                           controller: _expInternalCtrl,
-                          maxVal: widget.config.internalMax,
+                          maxVal: config.internalMax,
                           enabled: s.useExpected,
                           isDark: isDark,
-                          onChanged: (v) => p.updateExpectedInternalMarks(s.id, double.tryParse(v)),
+                          onChanged: (v) =>
+                              p.updateExpectedInternalMarks(s.id, double.tryParse(v)),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: _MarkInput(
-                          label: 'Exp. End-Sem (/${widget.config.endSemMax.toStringAsFixed(0)})',
+                          label: 'Exp. End-Sem (/${config.endSemMax.toStringAsFixed(0)})',
                           controller: _expEndSemCtrl,
-                          maxVal: widget.config.endSemMax,
+                          maxVal: config.endSemMax,
                           enabled: s.useExpected,
                           isDark: isDark,
-                          onChanged: (v) => p.updateExpectedEndSemMarks(s.id, double.tryParse(v)),
+                          onChanged: (v) =>
+                              p.updateExpectedEndSemMarks(s.id, double.tryParse(v)),
                         ),
                       ),
                     ],
@@ -1243,7 +1807,7 @@ class _SubjectCardState extends State<_SubjectCard> {
                     const SizedBox(height: 12),
                     _EndSemSlider(
                       subject: s,
-                      config: widget.config,
+                      config: config,
                       provider: p,
                       endSemController: _expEndSemCtrl,
                       isDark: isDark,
@@ -1274,6 +1838,9 @@ class _PredictionTab extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
           children: [
+            // ── NEW: University / Marking Scheme Selector ────────────────
+            _UniversitySchemeCard(provider: provider, isDark: isDark),
+            const SizedBox(height: 16),
             _PreviousSemesterCard(provider: provider, isDark: isDark),
             const SizedBox(height: 16),
             _TargetGradeCard(provider: provider, isDark: isDark),
@@ -1286,10 +1853,339 @@ class _PredictionTab extends StatelessWidget {
   }
 }
 
+// ── NEW: University Scheme Card ────────────────────────────────────────────
+
+class _UniversitySchemeCard extends StatefulWidget {
+  final ResultPredictionProvider provider;
+  final bool isDark;
+  const _UniversitySchemeCard(
+      {required this.provider, required this.isDark});
+
+  @override
+  State<_UniversitySchemeCard> createState() => _UniversitySchemeCardState();
+}
+
+class _UniversitySchemeCardState extends State<_UniversitySchemeCard> {
+  late TextEditingController _internalCtrl;
+  late TextEditingController _endSemCtrl;
+  late TextEditingController _passMarkCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.provider;
+    _internalCtrl =
+        TextEditingController(text: p.customInternalMax.toStringAsFixed(0));
+    _endSemCtrl =
+        TextEditingController(text: p.customEndSemMax.toStringAsFixed(0));
+    _passMarkCtrl =
+        TextEditingController(text: p.customPassMark.toStringAsFixed(0));
+  }
+
+  @override
+  void dispose() {
+    _internalCtrl.dispose();
+    _endSemCtrl.dispose();
+    _passMarkCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.provider;
+    final isDark = widget.isDark;
+    final config = p.gradingConfig;
+    final isCustom = p.selectedPresetId == 'custom';
+
+    return _SectionCard(
+      title: '🏫 University Marking Scheme',
+      subtitle: 'Select your college system or enter custom marks',
+      isDark: isDark,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Preset chips — scrollable row
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: UniversityPresets.all.map((preset) {
+                final selected = p.selectedPresetId == preset.id;
+                return GestureDetector(
+                  onTap: () => p.applyPreset(preset.id),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 0),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: selected
+                          ? const LinearGradient(
+                        colors: [Color(0xFFE53935), Color(0xFFFF6B6B)],
+                      )
+                          : null,
+                      color: selected
+                          ? null
+                          : _AppTheme.surfaceElevated(isDark),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: selected
+                            ? Colors.transparent
+                            : _AppTheme.border(isDark),
+                      ),
+                      boxShadow: selected
+                          ? [
+                        BoxShadow(
+                          color: const Color(0xFFE53935)
+                              .withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        )
+                      ]
+                          : null,
+                    ),
+                    child: Text(
+                      preset.shortName,
+                      style: TextStyle(
+                        color: selected
+                            ? Colors.white
+                            : _AppTheme.textSecondary(isDark),
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.normal,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // Active scheme info
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _AppTheme.surfaceElevated(isDark),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _AppTheme.accent.withOpacity(0.25)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    _SchemeInfoItem(
+                      label: 'Internal Max',
+                      value: config.internalMax.toStringAsFixed(0),
+                      color: _AppTheme.blue,
+                    ),
+                    _SchemeDivider(),
+                    _SchemeInfoItem(
+                      label: 'End-Sem Max',
+                      value: config.endSemMax.toStringAsFixed(0),
+                      color: _AppTheme.accentLight,
+                    ),
+                    _SchemeDivider(),
+                    _SchemeInfoItem(
+                      label: 'Total',
+                      value: config.totalMax.toStringAsFixed(0),
+                      color: _AppTheme.green,
+                    ),
+                    _SchemeDivider(),
+                    _SchemeInfoItem(
+                      label: 'Pass Mark',
+                      value: '${config.passMarkTotal.toStringAsFixed(0)}%',
+                      color: _AppTheme.yellow,
+                    ),
+                  ],
+                ),
+                if (config.passMarkInternal > 0 ||
+                    config.passMarkEndSem > 0) ...[
+                  Divider(
+                      color: _AppTheme.border(isDark), height: 14),
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 13,
+                          color: _AppTheme.textSecondary(isDark)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Separate pass conditions: '
+                            'Internal ≥ ${config.passMarkInternal.toStringAsFixed(0)}, '
+                            'End-Sem ≥ ${config.passMarkEndSem.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          color: _AppTheme.textSecondary(isDark),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Custom fields (visible only when 'custom' is selected)
+          if (isCustom) ...[
+            const SizedBox(height: 14),
+            _SectionLabel('⚙️ Custom Configuration',
+                active: true, isDark: isDark),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _MarkInput(
+                    label: 'Internal Max',
+                    controller: _internalCtrl,
+                    maxVal: 100,
+                    isDark: isDark,
+                    onChanged: (v) {
+                      final d = double.tryParse(v);
+                      if (d != null) p.setCustomInternalMax(d);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _MarkInput(
+                    label: 'End-Sem Max',
+                    controller: _endSemCtrl,
+                    maxVal: 100,
+                    isDark: isDark,
+                    onChanged: (v) {
+                      final d = double.tryParse(v);
+                      if (d != null) p.setCustomEndSemMax(d);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _MarkInput(
+                    label: 'Pass % (e.g. 40)',
+                    controller: _passMarkCtrl,
+                    maxVal: 60,
+                    isDark: isDark,
+                    onChanged: (v) {
+                      final d = double.tryParse(v);
+                      if (d != null) p.setCustomPassMark(d);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+
+          // Grade scale preview
+          const SizedBox(height: 14),
+          _GradeScalePreview(
+              scales: config.gradeScales, isDark: isDark),
+        ],
+      ),
+    );
+  }
+}
+
+class _SchemeInfoItem extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _SchemeInfoItem(
+      {required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(value,
+              style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16)),
+          const SizedBox(height: 2),
+          Text(label,
+              style: const TextStyle(
+                  color: Color(0xFF9A8FAA), fontSize: 10)),
+        ],
+      ),
+    );
+  }
+}
+
+class _SchemeDivider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+        width: 1, height: 30, color: const Color(0xFF2E2538));
+  }
+}
+
+class _GradeScalePreview extends StatelessWidget {
+  final List<GradeScale> scales;
+  final bool isDark;
+  const _GradeScalePreview(
+      {required this.scales, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Grade Scale',
+            style: TextStyle(
+                color: _AppTheme.textSecondary(isDark),
+                fontSize: 12,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: scales.map((g) {
+            final color = _AppTheme.gradeColor(g.label);
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: color.withOpacity(0.35)),
+              ),
+              child: RichText(
+                text: TextSpan(
+                  children: [
+                    TextSpan(
+                      text: g.label,
+                      style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12),
+                    ),
+                    TextSpan(
+                      text: ' ${g.minMarks.toStringAsFixed(0)}'
+                          '–${g.maxMarks.toStringAsFixed(0)}%'
+                          ' · ${g.gradePoints.toStringAsFixed(0)}pts',
+                      style: TextStyle(
+                          color: _AppTheme.textSecondary(isDark),
+                          fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+}
+
 class _PreviousSemesterCard extends StatefulWidget {
   final ResultPredictionProvider provider;
   final bool isDark;
-  const _PreviousSemesterCard({required this.provider, required this.isDark});
+  const _PreviousSemesterCard(
+      {required this.provider, required this.isDark});
 
   @override
   State<_PreviousSemesterCard> createState() => _PreviousSemesterCardState();
@@ -1323,36 +2219,108 @@ class _PreviousSemesterCardState extends State<_PreviousSemesterCard> {
   Widget build(BuildContext context) {
     final p = widget.provider;
     final isDark = widget.isDark;
+
     return _SectionCard(
       title: '📊 Previous Semester Data',
       subtitle: 'Required for CGPA calculation',
       isDark: isDark,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: _MarkInput(
-              label: 'CGPA so far (0–10)',
-              controller: _cgpaCtrl,
-              maxVal: 10,
-              isDark: isDark,
-              onChanged: (v) {
-                final d = double.tryParse(v);
-                if (d != null) p.setPreviousCGPA(d);
-              },
+          // Semester selector chips
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                ...List.generate(8, (index) {
+                  final sem = index + 1;
+                  final selected = p.currentSemester == sem;
+
+                  return GestureDetector(
+                    onTap: () => p.setCurrentSemester(sem),
+
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+
+                      width: 28,
+                      height: 28,
+
+                      margin: const EdgeInsets.only(right: 4),
+
+                      alignment: Alignment.center,
+
+                      decoration: BoxDecoration(
+                        gradient: selected
+                            ? const LinearGradient(
+                          colors: [
+                            Color(0xFFE53935),
+                            Color(0xFFFF6B6B),
+                          ],
+                        )
+                            : null,
+
+                        color: selected
+                            ? null
+                            : _AppTheme.surfaceElevated(isDark),
+
+                        borderRadius: BorderRadius.circular(6),
+
+                        border: Border.all(
+                          color: selected
+                              ? Colors.transparent
+                              : _AppTheme.border(isDark),
+                        ),
+                      ),
+
+                      child: Text(
+                        '$sem',
+                        style: TextStyle(
+                          color: selected
+                              ? Colors.white
+                              : _AppTheme.textSecondary(isDark),
+
+                          fontWeight: selected
+                              ? FontWeight.w800
+                              : FontWeight.normal,
+
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _MarkInput(
-              label: 'Completed Credits',
-              controller: _creditsCtrl,
-              maxVal: 500,
-              isDark: isDark,
-              onChanged: (v) {
-                final d = double.tryParse(v);
-                if (d != null) p.setCompletedCredits(d);
-              },
-            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _MarkInput(
+                  label: 'CGPA so far (0–10)',
+                  controller: _cgpaCtrl,
+                  maxVal: 10,
+                  isDark: isDark,
+                  onChanged: (v) {
+                    final d = double.tryParse(v);
+                    if (d != null) p.setPreviousCGPA(d);
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _MarkInput(
+                  label: 'Completed Credits',
+                  controller: _creditsCtrl,
+                  maxVal: 500,
+                  isDark: isDark,
+                  onChanged: (v) {
+                    final d = double.tryParse(v);
+                    if (d != null) p.setCompletedCredits(d);
+                  },
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1388,15 +2356,17 @@ class _TargetGradeCard extends StatelessWidget {
                 onTap: () => provider.setTargetGradeLabel(g.label),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 6),
                   decoration: BoxDecoration(
-                    // Selected chip uses red gradient, unselected uses surface
                     gradient: selected
                         ? const LinearGradient(
                       colors: [Color(0xFFE53935), Color(0xFFFF6B6B)],
                     )
                         : null,
-                    color: selected ? null : _AppTheme.surfaceElevated(isDark),
+                    color: selected
+                        ? null
+                        : _AppTheme.surfaceElevated(isDark),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: selected
@@ -1406,7 +2376,8 @@ class _TargetGradeCard extends StatelessWidget {
                     boxShadow: selected
                         ? [
                       BoxShadow(
-                        color: const Color(0xFFE53935).withOpacity(0.3),
+                        color:
+                        const Color(0xFFE53935).withOpacity(0.3),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       )
@@ -1419,7 +2390,8 @@ class _TargetGradeCard extends StatelessWidget {
                       color: selected
                           ? Colors.white
                           : _AppTheme.textSecondary(isDark),
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
+                      fontWeight:
+                      selected ? FontWeight.w700 : FontWeight.normal,
                       fontSize: 13,
                     ),
                   ),
@@ -1428,8 +2400,10 @@ class _TargetGradeCard extends StatelessWidget {
             }).toList(),
           ),
           const SizedBox(height: 16),
-          ...predictions.map((pred) =>
-              _PredictionRow(prediction: pred, config: provider.gradingConfig, isDark: isDark)),
+          ...predictions.map((pred) => _PredictionRow(
+              prediction: pred,
+              config: provider.gradingConfig,
+              isDark: isDark)),
         ],
       ),
     );
@@ -1472,7 +2446,8 @@ class _TargetCGPACardState extends State<_TargetCGPACard> {
             children: [
               Text('Target CGPA: ',
                   style: TextStyle(
-                      color: _AppTheme.textSecondary(isDark), fontSize: 13)),
+                      color: _AppTheme.textSecondary(isDark),
+                      fontSize: 13)),
               Text(_sliderVal.toStringAsFixed(1),
                   style: const TextStyle(
                       color: _AppTheme.accentLight,
@@ -1532,7 +2507,8 @@ class _TargetCGPACardState extends State<_TargetCGPACard> {
                             ? 'Not achievable (need ${reqSGPA.toStringAsFixed(2)} > 10)'
                             : reqSGPA.toStringAsFixed(2),
                         style: TextStyle(
-                          color: reqSGPA > 10 ? _AppTheme.red : _AppTheme.green,
+                          color:
+                          reqSGPA > 10 ? _AppTheme.red : _AppTheme.green,
                           fontWeight: FontWeight.w700,
                           fontSize: 20,
                         ),
@@ -1565,13 +2541,16 @@ class _PredictionRow extends StatelessWidget {
   final GradingConfig config;
   final bool isDark;
   const _PredictionRow(
-      {required this.prediction, required this.config, required this.isDark});
+      {required this.prediction,
+        required this.config,
+        required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     final p = prediction;
-    final pct = p.requiredEndSemMarks / config.endSemMax;
-    final color = _AppTheme.statusColor(p.requiredEndSemMarks, config.endSemMax);
+    final color = p.isAchievable
+        ? _AppTheme.statusColor(p.difficultyPct)
+        : _AppTheme.red;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1599,7 +2578,8 @@ class _PredictionRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(p.insight,
                     style: TextStyle(
-                        color: _AppTheme.textSecondary(isDark), fontSize: 11)),
+                        color: _AppTheme.textSecondary(isDark),
+                        fontSize: 11)),
               ],
             ),
           ),
@@ -1607,13 +2587,18 @@ class _PredictionRow extends StatelessWidget {
           Column(
             children: [
               Text(
-                p.isAchievable ? p.requiredEndSemMarks.toStringAsFixed(1) : 'N/A',
+                p.isAchievable
+                    ? p.requiredEndSemMarks.toStringAsFixed(1)
+                    : 'N/A',
                 style: TextStyle(
-                    color: color, fontWeight: FontWeight.w800, fontSize: 18),
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18),
               ),
               Text('/${config.endSemMax.toStringAsFixed(0)}',
                   style: TextStyle(
-                      color: _AppTheme.textSecondary(isDark), fontSize: 10)),
+                      color: _AppTheme.textSecondary(isDark),
+                      fontSize: 10)),
             ],
           ),
           const SizedBox(width: 8),
@@ -1621,7 +2606,9 @@ class _PredictionRow extends StatelessWidget {
             width: 36,
             height: 36,
             child: CircularProgressIndicator(
-              value: p.isAchievable ? pct.clamp(0.0, 1.0) : 1.0,
+              value: p.isAchievable
+                  ? p.difficultyPct.clamp(0.0, 1.0)
+                  : 1.0,
               backgroundColor: _AppTheme.border(isDark),
               valueColor: AlwaysStoppedAnimation<Color>(color),
               strokeWidth: 3.5,
@@ -1652,9 +2639,15 @@ class _InsightsTab extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
           children: [
-            if (results.isNotEmpty)
+            if (results.isNotEmpty) ...[
               _GradeDistributionCard(results: results, isDark: isDark),
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
+              _CreditWeightChart(
+                  subjects: provider.subjects,
+                  results: results,
+                  isDark: isDark),
+              const SizedBox(height: 16),
+            ],
             _SectionCard(
               title: '💡 Smart Suggestions',
               subtitle: 'Personalised insights based on your marks',
@@ -1672,7 +2665,9 @@ class _InsightsTab extends StatelessWidget {
                     ),
                   )
                 ]
-                    : insights.map((i) => _InsightTile(insight: i)).toList(),
+                    : insights
+                    .map((i) => _InsightTile(insight: i))
+                    .toList(),
               ),
             ),
           ],
@@ -1690,65 +2685,94 @@ class _InsightsTab extends StatelessWidget {
 
     if (results.isEmpty) return insights;
 
+    // SGPA insight
     if (sgpa != null) {
       if (sgpa >= 9.0) {
         insights.add(_Insight(
             icon: '🏆',
-            text: 'Outstanding! Your SGPA of ${sgpa.toStringAsFixed(2)} puts you in top tier.',
+            text:
+            'Outstanding! SGPA ${sgpa.toStringAsFixed(2)} puts you in top tier.',
             color: _AppTheme.green));
       } else if (sgpa >= 7.5) {
         insights.add(_Insight(
             icon: '👍',
-            text: 'Good SGPA of ${sgpa.toStringAsFixed(2)}. Push for ${(sgpa + 0.5).toStringAsFixed(1)} next semester.',
+            text:
+            'Good SGPA ${sgpa.toStringAsFixed(2)}. Push for ${(sgpa + 0.5).toStringAsFixed(1)} next semester.',
             color: _AppTheme.yellow));
       } else {
         insights.add(_Insight(
             icon: '⚠️',
-            text: 'SGPA ${sgpa.toStringAsFixed(2)} is below 7.5. Focus to avoid backlog risk.',
+            text:
+            'SGPA ${sgpa.toStringAsFixed(2)} is below 7.5. Focus to avoid backlog risk.',
             color: _AppTheme.red));
       }
     }
 
-    final failing = results.where((r) => !r.isPassing).toList();
-    for (final f in failing) {
+    // Failing subjects
+    for (final r in results.where((r) => !r.isPassing)) {
       insights.add(_Insight(
           icon: '🔴',
-          text: '${f.subject.name} is at risk of failing (${f.totalMarks.toStringAsFixed(1)}/100). Needs immediate attention.',
+          text:
+          '${r.subject.name}: ${r.totalMarks.toStringAsFixed(1)}/${config.totalMax.toStringAsFixed(0)} — below pass mark (${config.passMarkTotal.toStringAsFixed(0)}%). Backlog risk!',
           color: _AppTheme.red));
     }
 
+    // Attendance warnings
+    for (final s in provider.subjects.where((s) => s.hasAttendanceShortage)) {
+      insights.add(_Insight(
+          icon: '📵',
+          text:
+          '${s.name}: Attendance shortage detected. You may be barred from the exam!',
+          color: _AppTheme.red));
+    }
+
+    // At-risk subjects
+    for (final r in results.where((r) => r.isAtRisk && r.isPassing)) {
+      insights.add(_Insight(
+          icon: '🟠',
+          text:
+          '${r.subject.name}: Only ${r.totalPct.toStringAsFixed(1)}% — just above pass mark. Do not relax!',
+          color: _AppTheme.yellow));
+    }
+
+    // Best subject
     if (results.length > 1) {
-      final best = results.reduce((a, b) => a.totalMarks > b.totalMarks ? a : b);
+      final best = results
+          .reduce((a, b) => a.totalPct > b.totalPct ? a : b);
       insights.add(_Insight(
           icon: '⭐',
-          text: '${best.subject.name} is your strongest subject at ${best.totalMarks.toStringAsFixed(1)}/100 (${best.grade} grade).',
+          text:
+          '${best.subject.name} is your strongest at ${best.totalPct.toStringAsFixed(1)}% (${best.grade} grade).',
           color: _AppTheme.green));
     }
 
-    final highCredit = provider.subjects.where((s) => s.credits >= 4).toList();
-    for (final s in highCredit) {
+    // High-credit subjects below A
+    for (final s in provider.subjects.where((s) => s.credits >= 4)) {
       final r = results.firstWhere((r) => r.subject.id == s.id,
           orElse: () => results.first);
       if (r.subject.id == s.id && r.gradePoints < 8) {
         insights.add(_Insight(
             icon: '📌',
-            text: 'Focus on ${s.name} (${s.credits} credits) — improving this maximises your SGPA.',
+            text:
+            'Focus on ${s.name} (${s.credits}-credit) — improving this maximises your SGPA.',
             color: _AppTheme.yellow));
       }
     }
 
+    // Close to next grade
     for (final r in results) {
-      final currentBand = config.gradeScales.firstWhere(
-              (g) => g.label == r.grade,
+      final currentBand = config.gradeScales
+          .firstWhere((g) => g.label == r.grade,
           orElse: () => config.gradeScales.last);
       final nextBandIdx = config.gradeScales.indexOf(currentBand) - 1;
       if (nextBandIdx >= 0) {
         final nextBand = config.gradeScales[nextBandIdx];
-        final gap = nextBand.minMarks - r.totalMarks;
+        final gap = nextBand.minMarks - r.totalPct;
         if (gap > 0 && gap <= 5) {
           insights.add(_Insight(
               icon: '📈',
-              text: '${r.subject.name} is ${gap.toStringAsFixed(1)} marks away from ${nextBand.label} grade!',
+              text:
+              '${r.subject.name} is ${gap.toStringAsFixed(1)}% away from ${nextBand.label} grade!',
               color: _AppTheme.accentLight));
         }
       }
@@ -1762,7 +2786,8 @@ class _Insight {
   final String icon;
   final String text;
   final Color color;
-  const _Insight({required this.icon, required this.text, required this.color});
+  const _Insight(
+      {required this.icon, required this.text, required this.color});
 }
 
 class _InsightTile extends StatelessWidget {
@@ -1822,7 +2847,8 @@ class _GradeDistributionCard extends StatelessWidget {
                 height: 44,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: _AppTheme.gradeColor(e.key).withOpacity(0.15),
+                  color:
+                  _AppTheme.gradeColor(e.key).withOpacity(0.15),
                   shape: BoxShape.circle,
                   border: Border.all(
                       color: _AppTheme.gradeColor(e.key), width: 2),
@@ -1836,8 +2862,86 @@ class _GradeDistributionCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text('${e.value} subj',
                   style: TextStyle(
-                      color: _AppTheme.textSecondary(isDark), fontSize: 10)),
+                      color: _AppTheme.textSecondary(isDark),
+                      fontSize: 10)),
             ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// NEW: Credit-weighted performance chart
+class _CreditWeightChart extends StatelessWidget {
+  final List<Subject> subjects;
+  final List<SubjectResult> results;
+  final bool isDark;
+  const _CreditWeightChart(
+      {required this.subjects,
+        required this.results,
+        required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: '⚖️ Credit-Weighted Performance',
+      subtitle: 'Bigger bar = heavier subject',
+      isDark: isDark,
+      child: Column(
+        children: results.map((r) {
+          final pct = r.totalPct / 100.0;
+          final creditPct = r.subject.credits / 6.0; // max 6 credits
+          final color = _AppTheme.statusColor(pct);
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 60,
+                  child: Text(
+                    r.subject.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: _AppTheme.textSecondary(isDark),
+                        fontSize: 10),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: pct.clamp(0.0, 1.0),
+                          minHeight: (creditPct * 12 + 4)
+                              .clamp(4, 14)
+                              .toDouble(),
+                          backgroundColor: _AppTheme.border(isDark),
+                          valueColor:
+                          AlwaysStoppedAnimation<Color>(color),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 52,
+                  child: Text(
+                    '${r.totalPct.toStringAsFixed(1)}% ${r.grade}',
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
           );
         }).toList(),
       ),
@@ -1874,7 +2978,6 @@ class _SectionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Red left accent bar on section title
           Row(
             children: [
               Container(
@@ -1903,7 +3006,8 @@ class _SectionCard extends StatelessWidget {
               padding: const EdgeInsets.only(left: 11),
               child: Text(subtitle!,
                   style: TextStyle(
-                      color: _AppTheme.textSecondary(isDark), fontSize: 12)),
+                      color: _AppTheme.textSecondary(isDark),
+                      fontSize: 12)),
             ),
           ],
           const SizedBox(height: 14),
@@ -1952,8 +3056,8 @@ class _MarkInput extends StatelessWidget {
         labelText: label,
         disabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide:
-          BorderSide(color: _AppTheme.border(isDark).withOpacity(0.4)),
+          borderSide: BorderSide(
+              color: _AppTheme.border(isDark).withOpacity(0.4)),
         ),
       ),
       onChanged: onChanged,
@@ -1965,14 +3069,17 @@ class _SectionLabel extends StatelessWidget {
   final String text;
   final bool active;
   final bool isDark;
-  const _SectionLabel(this.text, {required this.active, required this.isDark});
+  const _SectionLabel(this.text,
+      {required this.active, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     return Text(
       text,
       style: TextStyle(
-        color: active ? _AppTheme.accentLight : _AppTheme.textSecondary(isDark),
+        color: active
+            ? _AppTheme.accentLight
+            : _AppTheme.textSecondary(isDark),
         fontSize: 12,
         fontWeight: active ? FontWeight.w600 : FontWeight.normal,
       ),
@@ -1997,6 +3104,129 @@ class _GradeBadge extends StatelessWidget {
       child: Text(grade,
           style: TextStyle(
               color: color, fontWeight: FontWeight.w800, fontSize: 12)),
+    );
+  }
+}
+
+class _MiniChip extends StatelessWidget {
+  final String label;
+  final Color bg;
+  final Color text;
+  const _MiniChip(
+      {required this.label, required this.bg, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(right: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              color: text, fontSize: 9, fontWeight: FontWeight.w700)),
+    );
+  }
+}
+
+class _ToggleRow extends StatelessWidget {
+  final String label;
+  final String sublabel;
+  final bool value;
+  final Color activeColor;
+  final bool isDark;
+  final ValueChanged<bool> onChanged;
+
+  const _ToggleRow({
+    required this.label,
+    required this.sublabel,
+    required this.value,
+    required this.activeColor,
+    required this.isDark,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: value
+            ? activeColor.withOpacity(0.07)
+            : _AppTheme.surfaceElevated(isDark),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: value
+              ? activeColor.withOpacity(0.3)
+              : _AppTheme.border(isDark),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(
+                        color: value
+                            ? activeColor
+                            : _AppTheme.textSecondary(isDark),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
+                Text(sublabel,
+                    style: TextStyle(
+                        color: _AppTheme.textSecondary(isDark),
+                        fontSize: 10)),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: activeColor,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shows pass-mark context for current scheme
+class _PassMarkBanner extends StatelessWidget {
+  final GradingConfig config;
+  final bool isDark;
+  const _PassMarkBanner({required this.config, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: _AppTheme.yellow.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _AppTheme.yellow.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Text('📋', style: TextStyle(fontSize: 13)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Scheme: ${config.internalMax.toStringAsFixed(0)} Internal + '
+                  '${config.endSemMax.toStringAsFixed(0)} End-Sem = '
+                  '${config.totalMax.toStringAsFixed(0)} total. '
+                  'Pass: ${config.passMarkTotal.toStringAsFixed(0)}%'
+                  '${config.passMarkEndSem > 0 ? ' (End-Sem ≥${config.passMarkEndSem.toStringAsFixed(0)})' : ''}.',
+              style: TextStyle(
+                  color: _AppTheme.yellow.withOpacity(0.9), fontSize: 11),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2034,6 +3264,11 @@ class _EndSemSliderState extends State<_EndSemSlider> {
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
+    final config = widget.config;
+    // Pass mark line position 0–1
+    final passLinePct =
+    (config.passMarkEndSem / config.endSemMax).clamp(0.0, 1.0);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2044,7 +3279,7 @@ class _EndSemSliderState extends State<_EndSemSlider> {
                     color: _AppTheme.textSecondary(isDark), fontSize: 11)),
             const Spacer(),
             Text(
-              '${_val.toStringAsFixed(1)} / ${widget.config.endSemMax.toStringAsFixed(0)}',
+              '${_val.toStringAsFixed(1)} / ${config.endSemMax.toStringAsFixed(0)}',
               style: const TextStyle(
                   color: _AppTheme.accentLight,
                   fontWeight: FontWeight.w700,
@@ -2052,6 +3287,18 @@ class _EndSemSliderState extends State<_EndSemSlider> {
             ),
           ],
         ),
+        if (config.passMarkEndSem > 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Text(
+              'Pass threshold: ≥${config.passMarkEndSem.toStringAsFixed(0)}',
+              style: TextStyle(
+                  color: _val < config.passMarkEndSem
+                      ? _AppTheme.red
+                      : _AppTheme.green,
+                  fontSize: 10),
+            ),
+          ),
         SliderTheme(
           data: SliderThemeData(
             activeTrackColor: _AppTheme.accent,
@@ -2062,12 +3309,13 @@ class _EndSemSliderState extends State<_EndSemSlider> {
           child: Slider(
             value: _val,
             min: 0,
-            max: widget.config.endSemMax,
-            divisions: (widget.config.endSemMax * 2).toInt(),
+            max: config.endSemMax,
+            divisions: (config.endSemMax * 2).toInt(),
             onChanged: (v) {
               setState(() => _val = v);
               widget.endSemController.text = v.toStringAsFixed(1);
-              widget.provider.updateExpectedEndSemMarks(widget.subject.id, v);
+              widget.provider
+                  .updateExpectedEndSemMarks(widget.subject.id, v);
             },
           ),
         ),
