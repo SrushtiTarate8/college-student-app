@@ -13,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // ── API Key ───────────────────────────────────────────────────────────────────
-final String _apiKey = dotenv.env['GROQ_API_KEY'] ?? '';// gsk_...
+final String _apiKey = dotenv.env['GROQ_API_KEY'] ?? ''; // gsk_...
 
 // ── Storage key for chat history ──────────────────────────────────────────────
 const String _chatHistoryKey = 'campusmate_chat_history';
@@ -72,35 +72,50 @@ class ChatbotScreen extends StatefulWidget {
 class _ChatbotState extends State<ChatbotScreen>
     with TickerProviderStateMixin {
 
-  final _ctrl   = TextEditingController();
+  final _ctrl = TextEditingController();
   final _scroll = ScrollController();
-  final _msgs   = <_Msg>[];
-  final _focus  = FocusNode();
+  final _msgs = <_Msg>[];
+  final _focus = FocusNode();
 
-  bool _busy        = false;
-  bool _ready       = false;
+  bool _busy = false;
+  bool _ready = false;
   bool _isFirstOpen = true;
 
   late Groq _groq;
 
-  // App data
-  double _att         = 0;
-  String _subjSummary = 'No subject data yet';
-  String _taskSummary = 'No tasks today';
-  String _notesSummary= 'No notes saved';
+  // ── App data ──────────────────────────────────────────────────────────────
+  double _att = 0;
+  String _subjSummary   = 'No subject data yet';
+  String _taskSummary   = 'No tasks today';
+  String _notesSummary  = 'No notes saved';
+
+  // NEW: Result prediction data
+  String _resultSummary = 'No result data yet';
+  String _sgpaInfo      = 'SGPA not calculated';
+  String _gradeInfo     = 'No grade data';
+  String _backlogInfo   = 'No backlog info';
+
+  // NEW: Productivity / Pomodoro data
+  String _streakInfo      = 'No streak data';
+  String _focusStats      = 'No focus session data';
+  String _dailyGoalInfo   = 'No daily goal set';
+  String _pomodoroSubjects = 'No focus subjects';
 
   // Typing animation
   late AnimationController _dot;
-  late Animation<double>   _dotA;
+  late Animation<double> _dotA;
 
   // Input field animation
   late AnimationController _sendBtnCtrl;
-  late Animation<double>   _sendBtnAnim;
+  late Animation<double> _sendBtnAnim;
 
+  // UPDATED: Added result + productivity chips
   final _chips = [
     'My attendance 📊',
     'Today tasks 📅',
     'Am I at risk? ⚠️',
+    'My SGPA 🎓',
+    'My streak 🔥',
     'Study tips 💡',
     'My notes 📝',
     'Make study plan 📖',
@@ -136,23 +151,49 @@ class _ChatbotState extends State<ChatbotScreen>
     super.dispose();
   }
 
-  // ── Initialize: load history + data + groq ──────────────────────────────────
+  // ── Initialize: load history + all data + groq ──────────────────────────────
   Future<void> _initialize() async {
     await Future.wait([
       _loadChatHistory(),
       _loadAttendance(),
       _loadTasks(),
       _loadNotes(),
+      _loadResultData(),       // NEW
+      _loadProductivityData(), // NEW
     ]);
 
+    // UPDATED: system prompt includes result + productivity data
     final systemPrompt =
         'You are CampusMate AI, a smart and friendly college assistant. '
         'Student: ${widget.studentName}, Branch: ${widget.studentBranch}. '
+
+    // Attendance
         'Attendance: ${_att.toStringAsFixed(1)}% (${_att >= 75 ? "safe" : "at risk"}). '
         'Subjects: $_subjSummary. '
+
+    // Planner
         'Todays tasks: $_taskSummary. '
+
+    // Notes
         'Notes: $_notesSummary. '
-        'Use this data for personalized answers. '
+
+    // Result Prediction (NEW)
+        'Academic results: $_resultSummary. '
+        'Current SGPA/CGPA: $_sgpaInfo. '
+        'Grade breakdown: $_gradeInfo. '
+        'Backlog/at-risk subjects: $_backlogInfo. '
+
+    // Productivity / Pomodoro (NEW)
+        'Focus streak: $_streakInfo. '
+        'Focus sessions today: $_focusStats. '
+        'Daily focus goal: $_dailyGoalInfo. '
+        'Focus subjects configured: $_pomodoroSubjects. '
+
+        'Use ALL this data to give personalised answers. '
+        'If a student asks about their SGPA, grades, marks, result prediction, '
+        'or which subjects they might fail, use the result data above. '
+        'If they ask about focus, productivity, streak, Pomodoro, or study time, '
+        'use the productivity data above. '
         'Keep replies SHORT. For simple questions: 1-3 sentences max. '
         'For study topics: brief + bullet points only if needed. '
         'Never over-explain. No filler phrases.';
@@ -175,11 +216,11 @@ class _ChatbotState extends State<ChatbotScreen>
       _addBot(
           'Welcome ${widget.studentName}! ✨\n\n'
               'I\'m CampusMate AI — your personal academic assistant.\n\n'
-              'I analyze your attendance, tasks, and notes to give you smart insights and guidance.\n\n'
-              'Let’s make your college life more productive 🚀'
+              'I analyze your attendance, tasks, notes, results, and focus sessions '
+              'to give you smart insights and guidance.\n\n'
+              'Let\'s make your college life more productive 🚀'
       );
     } else {
-      // Scroll to bottom to show latest messages
       _scrollToBottom(instant: true);
     }
   }
@@ -188,7 +229,7 @@ class _ChatbotState extends State<ChatbotScreen>
   Future<void> _loadChatHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw   = prefs.getString(_chatHistoryKey);
+      final raw = prefs.getString(_chatHistoryKey);
       if (raw == null || raw.isEmpty) {
         _isFirstOpen = true;
         return;
@@ -212,7 +253,6 @@ class _ChatbotState extends State<ChatbotScreen>
   Future<void> _saveChatHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      // Keep only last _maxStoredMsgs messages
       final toSave = _msgs.length > _maxStoredMsgs
           ? _msgs.sublist(_msgs.length - _maxStoredMsgs)
           : _msgs;
@@ -225,17 +265,18 @@ class _ChatbotState extends State<ChatbotScreen>
   Future<void> _loadAttendance() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw   = prefs.getString('att_subjects');
+      final raw = prefs.getString('att_subjects');
       if (raw == null) return;
-      final list  = jsonDecode(raw) as List;
+      final list = jsonDecode(raw) as List;
       int tA = 0, tL = 0;
       final parts = <String>[];
       for (final e in list) {
-        final name = (e['name']     as String?) ?? 'Subject';
-        final att  = (e['attended'] as int?)    ?? 0;
-        final miss = (e['missed']   as int?)    ?? 0;
+        final name = (e['name'] as String?) ?? 'Subject';
+        final att  = (e['attended'] as int?) ?? 0;
+        final miss = (e['missed'] as int?) ?? 0;
         final tot  = att + miss;
-        tA += att; tL += tot;
+        tA += att;
+        tL += tot;
         if (tot > 0) {
           final pct = (att / tot * 100).toStringAsFixed(0);
           parts.add('$name:$pct%${att / tot * 100 < 75 ? "(low)" : ""}');
@@ -273,16 +314,280 @@ class _ChatbotState extends State<ChatbotScreen>
   // ── Load notes ───────────────────────────────────────────────────────────────
   Future<void> _loadNotes() async {
     try {
-      final prefs  = await SharedPreferences.getInstance();
-      final raw    = prefs.getString('notes_list');
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('notes_list');
       if (raw == null) return;
-      final list   = jsonDecode(raw) as List;
+      final list = jsonDecode(raw) as List;
       final titles = list
           .map((e) => (e['title'] as String?) ?? '')
           .where((s) => s.isNotEmpty)
           .take(6)
           .toList();
       if (titles.isNotEmpty) _notesSummary = titles.join(', ');
+    } catch (_) {}
+  }
+
+  // ── NEW: Load result prediction data ─────────────────────────────────────────
+  // Reads from SharedPreferences key 'result_prediction_data_v2'
+  // which is saved by ResultPredictionProvider in ResultScreen.dart
+  Future<void> _loadResultData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('result_prediction_data_v2');
+      if (raw == null || raw.isEmpty) return;
+
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+
+      // ── Subjects + marks ──────────────────────────────────────────────────
+      final subjectsList = data['subjects'] as List? ?? [];
+      if (subjectsList.isEmpty) return;
+
+      final gradingRaw = data['gradingConfig'] as Map<String, dynamic>?;
+      final internalMax = (gradingRaw?['internalMax'] as num?)?.toDouble() ?? 40;
+      final endSemMax   = (gradingRaw?['endSemMax']   as num?)?.toDouble() ?? 60;
+      final totalMax    = internalMax + endSemMax;
+      final passMarkPct = (gradingRaw?['passMarkTotal'] as num?)?.toDouble() ?? 40;
+      final passMarkEndSem = (gradingRaw?['passMarkEndSem'] as num?)?.toDouble() ?? 0;
+
+      // ── Grades list from config ────────────────────────────────────────────
+      final gradeScalesRaw = gradingRaw?['gradeScales'] as List? ?? [];
+      // Build a simple lookup: minMarks → label
+      // We'll just derive grade from pct inline below
+
+      // ── Parse each subject ────────────────────────────────────────────────
+      final subjectParts  = <String>[];
+      final failParts     = <String>[];
+      final riskParts     = <String>[];
+      double totalWP      = 0;
+      double totalCredits = 0;
+      int    dataCount    = 0;
+
+      for (final e in subjectsList) {
+        final name     = (e['name'] as String?) ?? 'Subject';
+        final credits  = (e['credits'] as num?)?.toDouble() ?? 3;
+        final useExp   = e['useExpected'] as bool? ?? false;
+        final attnLow  = e['hasAttendanceShortage'] as bool? ?? false;
+
+        // Pick actual or expected marks
+        final internal = useExp
+            ? (e['expectedInternalMarks'] as num?)?.toDouble()
+            : (e['internalMarks'] as num?)?.toDouble();
+        final endSem = useExp
+            ? (e['expectedEndSemMarks'] as num?)?.toDouble()
+            : (e['endSemMarks'] as num?)?.toDouble();
+
+        if (internal == null || endSem == null) continue;
+        dataCount++;
+
+        final total    = (internal + endSem).clamp(0.0, totalMax);
+        final pct      = (total / totalMax) * 100;
+
+        // Determine grade label from gradeScales
+        String gradeLabel = 'F';
+        double gradePoints = 0;
+        for (final g in gradeScalesRaw) {
+          final min = (g['minMarks'] as num?)?.toDouble() ?? 0;
+          final max = (g['maxMarks'] as num?)?.toDouble() ?? 0;
+          if (pct >= min && pct <= max) {
+            gradeLabel  = (g['label'] as String?) ?? 'F';
+            gradePoints = (g['gradePoints'] as num?)?.toDouble() ?? 0;
+            break;
+          }
+        }
+
+        // Pass/fail check
+        bool passing = pct >= passMarkPct;
+        if (passMarkEndSem > 0 && endSem < passMarkEndSem) passing = false;
+
+        // Weighted grade points for SGPA
+        totalWP      += credits * gradePoints;
+        totalCredits += credits;
+
+        // Build subject summary string
+        final flag = attnLow ? '+attn_risk' : '';
+        subjectParts.add(
+            '$name:${total.toStringAsFixed(1)}/$totalMax(${pct.toStringAsFixed(0)}%,$gradeLabel$flag)');
+
+        if (!passing) {
+          failParts.add('$name(${pct.toStringAsFixed(0)}%)');
+        } else if (pct < passMarkPct + 8) {
+          riskParts.add('$name(${pct.toStringAsFixed(0)}%)');
+        }
+      }
+
+      // ── SGPA ──────────────────────────────────────────────────────────────
+      final sgpa = totalCredits > 0 ? totalWP / totalCredits : null;
+
+      // ── Previous CGPA ─────────────────────────────────────────────────────
+      final prevCGPA       = (data['previousCGPA'] as num?)?.toDouble() ?? 0.0;
+      final completedCreds = (data['completedCredits'] as num?)?.toDouble() ?? 0.0;
+      final currentSem     = (data['currentSemester'] as int?) ?? 1;
+      final presetId       = (data['selectedPresetId'] as String?) ?? 'custom';
+
+      // ── Predicted CGPA ────────────────────────────────────────────────────
+      double? predictedCGPA;
+      if (sgpa != null && prevCGPA > 0 && completedCreds > 0) {
+        final total = completedCreds + totalCredits;
+        predictedCGPA = (prevCGPA * completedCreds + sgpa * totalCredits) / total;
+      }
+
+      // ── Populate fields ───────────────────────────────────────────────────
+      if (dataCount > 0) {
+        _resultSummary = subjectParts.join('; ');
+        _sgpaInfo = [
+          if (sgpa != null) 'Current SGPA: ${sgpa.toStringAsFixed(2)}',
+          if (prevCGPA > 0) 'Previous CGPA: ${prevCGPA.toStringAsFixed(2)}',
+          if (predictedCGPA != null)
+            'Predicted CGPA: ${predictedCGPA.toStringAsFixed(2)}',
+          'Semester: $currentSem',
+          'Scheme: $presetId (${internalMax.toStringAsFixed(0)}+${endSemMax.toStringAsFixed(0)})',
+        ].join(', ');
+
+        _gradeInfo = subjectParts.isNotEmpty
+            ? subjectParts.join(', ')
+            : 'No grade data';
+
+        _backlogInfo = [
+          if (failParts.isNotEmpty) 'Failing: ${failParts.join(", ")}',
+          if (riskParts.isNotEmpty) 'At risk: ${riskParts.join(", ")}',
+          if (failParts.isEmpty && riskParts.isEmpty) 'No backlogs or risk',
+        ].join('; ');
+      }
+    } catch (_) {}
+  }
+
+  // ── NEW: Load productivity / Pomodoro data ────────────────────────────────
+  // Reads from SharedPreferences keys saved by GamificationState,
+  // ProductivityEngine (InMemoryStorage / SharedPreferences), and DailyGoal.
+  Future<void> _loadProductivityData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // ── GamificationState keys ────────────────────────────────────────────
+      final xp            = prefs.getInt('gs_xp') ?? 0;
+      final totalSessions = prefs.getInt('gs_sessions') ?? 0;
+      final unlockedBadges = prefs.getStringList('gs_badges') ?? [];
+
+      // Daily sessions map: "subjectId|yyyy-MM-dd" → count
+      final rawDaily = prefs.getString('gs_daily');
+      final dailyMap = <String, int>{};
+      if (rawDaily != null && rawDaily.isNotEmpty) {
+        try {
+          final m = jsonDecode(rawDaily) as Map<String, dynamic>;
+          m.forEach((k, v) => dailyMap[k] = v as int);
+        } catch (_) {}
+      }
+
+      // Per-subject daily targets
+      final rawTargets = prefs.getString('gs_targets');
+      final targets = <String, int>{};
+      if (rawTargets != null && rawTargets.isNotEmpty) {
+        try {
+          final m = jsonDecode(rawTargets) as Map<String, dynamic>;
+          m.forEach((k, v) => targets[k] = v as int);
+        } catch (_) {}
+      }
+
+      // XP level
+      final level = (xp ~/ 200) + 1;
+      final xpToNext = 200 - (xp % 200);
+
+      // ── Streak data from StreakEngine (stored in session_history_v1) ──────
+      final rawHistory = prefs.getString('session_history_v1');
+      double currentStreak = 0;
+      double longestStreak = 0;
+      double totalFocusMinutesAllTime = 0;
+      int    sessionsToday = 0;
+
+      if (rawHistory != null && rawHistory.isNotEmpty) {
+        try {
+          final histList = jsonDecode(rawHistory) as List;
+          final now    = DateTime.now();
+          final today  = DateTime(now.year, now.month, now.day);
+
+          // Count sessions today and total focus time
+          final byDay  = <DateTime, double>{};
+          for (final r in histList) {
+            final rec = r as Map<String, dynamic>;
+            if (rec['completed'] != true) continue;
+            final dt      = DateTime.parse(rec['startedAt'] as String);
+            final focMins = ((rec['focusMinutes'] as num?) ?? 25).toDouble();
+            totalFocusMinutesAllTime += focMins;
+
+            final day = DateTime.utc(dt.year, dt.month, dt.day);
+            byDay[day] = (byDay[day] ?? 0) + focMins;
+
+            final dtDay = DateTime(dt.year, dt.month, dt.day);
+            if (dtDay == today) sessionsToday++;
+          }
+
+          // Compute streak (same logic as StreakEngine.recompute)
+          final targetMins = 120.0; // default; we can't access DailyGoal here
+          final nowUtc = DateTime.utc(now.year, now.month, now.day);
+          double streak = 0;
+          for (int i = 0; i <= 90; i++) {
+            final day  = nowUtc.subtract(Duration(days: i));
+            final mins = byDay[day] ?? 0;
+            if (mins == 0 && i > 0) break;
+            if (mins >= targetMins) {
+              streak += 1.0;
+            } else if (mins >= targetMins * 0.5 && mins > 0) {
+              streak += 0.5;
+            }
+          }
+          currentStreak = streak;
+          longestStreak = streak; // simplified — full longest needs full scan
+        } catch (_) {}
+      }
+
+      // ── SubjectManager subjects (saved by SubjectManager._persist) ────────
+      final rawSubjects = prefs.getString('subjects_v1');
+      final pomodoroSubjectNames = <String>[];
+      if (rawSubjects != null && rawSubjects.isNotEmpty) {
+        try {
+          final list = jsonDecode(rawSubjects) as List;
+          for (final s in list) {
+            final name      = (s['name'] as String?) ?? '';
+            final focusSecs = (s['focusSeconds'] as int?) ?? 1500;
+            if (name.isNotEmpty) {
+              pomodoroSubjectNames.add('$name(${focusSecs ~/ 60}m)');
+            }
+          }
+        } catch (_) {}
+      }
+
+      // ── Today's per-subject session counts ────────────────────────────────
+      final now       = DateTime.now();
+      final todayStr  = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final todayCounts = <String>[];
+      dailyMap.forEach((key, count) {
+        if (key.endsWith('|$todayStr') && count > 0) {
+          final subjId  = key.replaceAll('|$todayStr', '');
+          final target  = targets[subjId] ?? 4;
+          todayCounts.add('$subjId:$count/$target sessions');
+        }
+      });
+
+      // ── Populate fields ───────────────────────────────────────────────────
+      _streakInfo = 'Current streak: ${currentStreak.toStringAsFixed(currentStreak == currentStreak.roundToDouble() ? 0 : 1)} days, '
+          'Longest streak: ${longestStreak.toStringAsFixed(0)} days, '
+          'Total XP: $xp (Level $level, $xpToNext XP to next level), '
+          'Badges unlocked: ${unlockedBadges.length}/10';
+
+      _focusStats = [
+        'Total sessions all time: $totalSessions',
+        'Sessions today: $sessionsToday',
+        'Total focus time: ${(totalFocusMinutesAllTime / 60).toStringAsFixed(1)} hours',
+        if (todayCounts.isNotEmpty) 'Today breakdown: ${todayCounts.join(", ")}',
+      ].join('; ');
+
+      // DailyGoal target is stored in memory only; default is 120 min
+      _dailyGoalInfo = 'Default daily focus goal: 120 min '
+          '(${sessionsToday > 0 ? "student has done $sessionsToday sessions today" : "no sessions yet today"})';
+
+      _pomodoroSubjects = pomodoroSubjectNames.isNotEmpty
+          ? pomodoroSubjectNames.join(', ')
+          : 'No Pomodoro subjects configured';
     } catch (_) {}
   }
 
@@ -301,7 +606,7 @@ class _ChatbotState extends State<ChatbotScreen>
 
     try {
       final response = await _groq.sendMessage(msg);
-      final reply    = response.choices.first.message.content.trim();
+      final reply = response.choices.first.message.content.trim();
       setState(() => _busy = false);
       _addBot(reply.isNotEmpty ? reply : 'No response. Please try again.');
     } on GroqException catch (e) {
@@ -315,7 +620,7 @@ class _ChatbotState extends State<ChatbotScreen>
 
   void _addBot(String t) {
     setState(() => _msgs.add(_Msg(t, false, DateTime.now())));
-    _saveChatHistory(); // ← save after every bot reply
+    _saveChatHistory();
     _scrollToBottom();
   }
 
@@ -348,7 +653,7 @@ class _ChatbotState extends State<ChatbotScreen>
     if (i == 0) return true;
     final prev = _msgs[i - 1].time;
     final curr = _msgs[i].time;
-    return prev.year  != curr.year ||
+    return prev.year != curr.year ||
         prev.month != curr.month ||
         prev.day   != curr.day;
   }
@@ -364,17 +669,14 @@ class _ChatbotState extends State<ChatbotScreen>
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Clear Chat',
             style: TextStyle(fontWeight: FontWeight.w800)),
-        content: const Text(
-            'This will delete all chat history permanently.'),
+        content: const Text('This will delete all chat history permanently.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
@@ -392,16 +694,18 @@ class _ChatbotState extends State<ChatbotScreen>
 
     if (confirm != true) return;
 
-    // Clear SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_chatHistoryKey);
 
-    // Reset Groq session
     _groq.startChat();
     _groq.setCustomInstructionsWith(
       'You are CampusMate AI. Student: ${widget.studentName}. '
           'Attendance: ${_att.toStringAsFixed(1)}%. '
           'Subjects: $_subjSummary. Tasks: $_taskSummary. Notes: $_notesSummary. '
+          'Results: $_resultSummary. SGPA/CGPA: $_sgpaInfo. '
+          'Grades: $_gradeInfo. Backlogs: $_backlogInfo. '
+          'Focus streak: $_streakInfo. Focus stats: $_focusStats. '
+          'Daily goal: $_dailyGoalInfo. Pomodoro subjects: $_pomodoroSubjects. '
           'Keep replies SHORT. 1-3 sentences for simple questions. No over-explaining.',
     );
 
@@ -428,21 +732,16 @@ class _ChatbotState extends State<ChatbotScreen>
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               itemCount: _msgs.length + (_busy ? 1 : 0),
               itemBuilder: (_, i) {
-                if (_busy && i == _msgs.length) {
-                  return _typingBubble();
-                }
-                return Column(
-                  children: [
-                    if (_showDateDivider(i))
-                      _dateDivider(_dateLabel(_msgs[i].time)),
-                    _bubble(_msgs[i]),
-                  ],
-                );
+                if (_busy && i == _msgs.length) return _typingBubble();
+                return Column(children: [
+                  if (_showDateDivider(i))
+                    _dateDivider(_dateLabel(_msgs[i].time)),
+                  _bubble(_msgs[i]),
+                ]);
               },
             ),
           ),
         ),
-        // Chips only on first message
         if (_ready && !_busy && _msgs.length <= 1) _chipsRow(),
         _inputBar(),
       ]),
@@ -463,7 +762,6 @@ class _ChatbotState extends State<ChatbotScreen>
       padding: EdgeInsets.fromLTRB(
           16, MediaQuery.of(context).padding.top + 12, 16, 18),
       child: Row(children: [
-        // Back
         GestureDetector(
           onTap: () => Navigator.pop(context),
           child: Container(
@@ -478,60 +776,47 @@ class _ChatbotState extends State<ChatbotScreen>
           ),
         ),
         const SizedBox(width: 12),
-
-        // Avatar with pulse
-        Stack(
-          children: [
-            Container(
-              width: 44, height: 44,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white38, width: 2),
-              ),
-              child: const Icon(Icons.auto_awesome_rounded,
-                  color: Colors.white, size: 22),
+        Stack(children: [
+          Container(
+            width: 44, height: 44,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white38, width: 2),
             ),
-            Positioned(
-              bottom: 1, right: 1,
-              child: Container(
-                width: 12, height: 12,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF69F0AE),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(width: 12),
-
-        // Title
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('CampusMate AI',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.3)),
-              Text(
-                _busy ? 'Typing...' : 'Online · Your study assistant',
-                style: TextStyle(
-                    color: _busy
-                        ? const Color(0xFFFFE082)
-                        : Colors.white70,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500),
-              ),
-            ],
+            child: const Icon(Icons.auto_awesome_rounded,
+                color: Colors.white, size: 22),
           ),
+          Positioned(
+            bottom: 1, right: 1,
+            child: Container(
+              width: 12, height: 12,
+              decoration: BoxDecoration(
+                color: const Color(0xFF69F0AE),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+            ),
+          ),
+        ]),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('CampusMate AI',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3)),
+            Text(
+              _busy ? 'Typing...' : 'Online · Your study assistant',
+              style: TextStyle(
+                  color: _busy ? const Color(0xFFFFE082) : Colors.white70,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500),
+            ),
+          ]),
         ),
-
-        // Clear chat button
         GestureDetector(
           onTap: _clearChat,
           child: Container(
@@ -554,20 +839,18 @@ class _ChatbotState extends State<ChatbotScreen>
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(children: [
         Expanded(
-            child: Divider(color: _dateDividerColor.withOpacity(0.4),
-                thickness: 1)),
+            child: Divider(
+                color: _dateDividerColor.withOpacity(0.4), thickness: 1)),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10),
           child: Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 4)
+                    color: Colors.black.withOpacity(0.05), blurRadius: 4)
               ],
             ),
             child: Text(label,
@@ -594,55 +877,47 @@ class _ChatbotState extends State<ChatbotScreen>
         u ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // Bot avatar
           if (!u) ...[
             Container(
               width: 32, height: 32,
               margin: const EdgeInsets.only(right: 8, bottom: 2),
               decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                    colors: [_headerStart, _headerEnd]),
+                gradient: LinearGradient(colors: [_headerStart, _headerEnd]),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.auto_awesome_rounded,
                   color: Colors.white, size: 15),
             ),
           ],
-
           Flexible(
             child: Column(
-              crossAxisAlignment: u
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.start,
+              crossAxisAlignment:
+              u ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
-                // Long press to copy
                 GestureDetector(
                   onLongPress: () {
                     Clipboard.setData(ClipboardData(text: m.text));
                     HapticFeedback.mediumImpact();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Message copied!'),
-                        duration: const Duration(seconds: 1),
-                        backgroundColor: _userBubble,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    );
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: const Text('Message copied!'),
+                      duration: const Duration(seconds: 1),
+                      backgroundColor: _userBubble,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ));
                   },
                   child: Container(
                     constraints: BoxConstraints(
-                        maxWidth:
-                        MediaQuery.of(context).size.width * 0.75),
+                        maxWidth: MediaQuery.of(context).size.width * 0.75),
                     padding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 11),
                     decoration: BoxDecoration(
                       color: u ? _userBubble : _botBubble,
                       borderRadius: BorderRadius.only(
-                        topLeft:     const Radius.circular(18),
-                        topRight:    const Radius.circular(18),
-                        bottomLeft:  Radius.circular(u ? 18 : 4),
+                        topLeft: const Radius.circular(18),
+                        topRight: const Radius.circular(18),
+                        bottomLeft: Radius.circular(u ? 18 : 4),
                         bottomRight: Radius.circular(u ? 4 : 18),
                       ),
                       boxShadow: [
@@ -655,46 +930,35 @@ class _ChatbotState extends State<ChatbotScreen>
                         ),
                       ],
                     ),
-                    child: Text(
-                      m.text,
-                      style: TextStyle(
-                        color: u ? Colors.white : _textDark,
-                        fontSize: 14,
-                        height: 1.5,
-                      ),
-                    ),
+                    child: Text(m.text,
+                        style: TextStyle(
+                            color: u ? Colors.white : _textDark,
+                            fontSize: 14,
+                            height: 1.5)),
                   ),
                 ),
                 const SizedBox(height: 4),
-                // Time + tick for user messages
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_formatTime(m.time),
-                        style: const TextStyle(
-                            color: _textMuted, fontSize: 10)),
-                    if (u) ...[
-                      const SizedBox(width: 3),
-                      const Icon(Icons.done_all_rounded,
-                          size: 12, color: _userBubble),
-                    ],
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(_formatTime(m.time),
+                      style: const TextStyle(color: _textMuted, fontSize: 10)),
+                  if (u) ...[
+                    const SizedBox(width: 3),
+                    const Icon(Icons.done_all_rounded,
+                        size: 12, color: _userBubble),
                   ],
-                ),
+                ]),
               ],
             ),
           ),
-
-          // User avatar
           if (u) ...[
             Container(
               width: 32, height: 32,
               margin: const EdgeInsets.only(left: 8, bottom: 2),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF6C63FF), Color(0xFF9C59D1)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                    colors: [Color(0xFF6C63FF), Color(0xFF9C59D1)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight),
                 shape: BoxShape.circle,
               ),
               child: Center(
@@ -719,65 +983,53 @@ class _ChatbotState extends State<ChatbotScreen>
   Widget _typingBubble() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Container(
-            width: 32, height: 32,
-            margin: const EdgeInsets.only(right: 8, bottom: 2),
-            decoration: const BoxDecoration(
-              gradient:
-              LinearGradient(colors: [_headerStart, _headerEnd]),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.auto_awesome_rounded,
-                color: Colors.white, size: 15),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Container(
+          width: 32, height: 32,
+          margin: const EdgeInsets.only(right: 8, bottom: 2),
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(colors: [_headerStart, _headerEnd]),
+            shape: BoxShape.circle,
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 18, vertical: 14),
-            decoration: BoxDecoration(
-              color: _botBubble,
-              borderRadius: const BorderRadius.only(
-                topLeft:     Radius.circular(18),
-                topRight:    Radius.circular(18),
-                bottomLeft:  Radius.circular(4),
-                bottomRight: Radius.circular(18),
-              ),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withOpacity(0.07),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4))
-              ],
+          child: const Icon(Icons.auto_awesome_rounded,
+              color: Colors.white, size: 15),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            color: _botBubble,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(18), topRight: Radius.circular(18),
+              bottomLeft: Radius.circular(4), bottomRight: Radius.circular(18),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(
-                3,
-                    (i) => AnimatedBuilder(
-                  animation: _dotA,
-                  builder: (_, __) {
-                    final opacity = i == 0
-                        ? _dotA.value
-                        : i == 1
-                        ? _dotA.value * 0.7
-                        : _dotA.value * 0.4;
-                    return Container(
-                      width: 8, height: 8,
-                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                      decoration: BoxDecoration(
-                        color: _headerStart.withOpacity(opacity),
-                        shape: BoxShape.circle,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.07),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4))
+            ],
           ),
-        ],
-      ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(3, (i) => AnimatedBuilder(
+              animation: _dotA,
+              builder: (_, __) {
+                final opacity = i == 0
+                    ? _dotA.value
+                    : i == 1 ? _dotA.value * 0.7 : _dotA.value * 0.4;
+                return Container(
+                  width: 8, height: 8,
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  decoration: BoxDecoration(
+                    color: _headerStart.withOpacity(opacity),
+                    shape: BoxShape.circle,
+                  ),
+                );
+              },
+            )),
+          ),
+        ),
+      ]),
     );
   }
 
@@ -785,53 +1037,47 @@ class _ChatbotState extends State<ChatbotScreen>
   Widget _chipsRow() {
     return Container(
       padding: const EdgeInsets.only(top: 8, bottom: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 16, bottom: 8),
-            child: Text('Quick actions',
-                style: TextStyle(
-                    color: _textMuted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600)),
-          ),
-          SizedBox(
-            height: 38,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: _chips.length,
-              itemBuilder: (_, i) => GestureDetector(
-                onTap: () => _send(_chips[i]),
-                child: Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: _chipBg,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                        color: _chipText.withOpacity(0.25)),
-                    boxShadow: [
-                      BoxShadow(
-                          color: _chipText.withOpacity(0.08),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2))
-                    ],
-                  ),
-                  child: Text(_chips[i],
-                      style: const TextStyle(
-                          color: _chipText,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Padding(
+          padding: EdgeInsets.only(left: 16, bottom: 8),
+          child: Text('Quick actions',
+              style: TextStyle(
+                  color: _textMuted, fontSize: 12, fontWeight: FontWeight.w600)),
+        ),
+        SizedBox(
+          height: 38,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: _chips.length,
+            itemBuilder: (_, i) => GestureDetector(
+              onTap: () => _send(_chips[i]),
+              child: Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  color: _chipBg,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: _chipText.withOpacity(0.25)),
+                  boxShadow: [
+                    BoxShadow(
+                        color: _chipText.withOpacity(0.08),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2))
+                  ],
                 ),
+                child: Text(_chips[i],
+                    style: const TextStyle(
+                        color: _chipText,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
               ),
             ),
           ),
-          const SizedBox(height: 6),
-        ],
-      ),
+        ),
+        const SizedBox(height: 6),
+      ]),
     );
   }
 
@@ -850,142 +1096,128 @@ class _ChatbotState extends State<ChatbotScreen>
               offset: const Offset(0, -3))
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          // Text field
-          Expanded(
-            child: Container(
-              constraints: const BoxConstraints(maxHeight: 120),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2))
-                ],
-                border: Border.all(
-                  color: hasText
-                      ? _userBubble.withOpacity(0.4)
-                      : Colors.transparent,
-                  width: 1.5,
-                ),
-              ),
-              child: TextField(
-                controller: _ctrl,
-                focusNode: _focus,
-                maxLines: 5,
-                minLines: 1,
-                textCapitalization: TextCapitalization.sentences,
-                style: const TextStyle(
-                    fontSize: 14, color: _textDark, height: 1.4),
-                decoration: InputDecoration(
-                  hintText: _ready
-                      ? 'Message CampusMate AI...'
-                      : 'Loading your data...',
-                  hintStyle: TextStyle(
-                      color: Colors.grey[400], fontSize: 14),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 18, vertical: 12),
-                ),
-                onSubmitted: (v) {
-                  if (!_busy) _send(v);
-                },
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Expanded(
+          child: Container(
+            constraints: const BoxConstraints(maxHeight: 120),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2))
+              ],
+              border: Border.all(
+                color: hasText
+                    ? _userBubble.withOpacity(0.4)
+                    : Colors.transparent,
+                width: 1.5,
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-
-          // Send button — animates in/out
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            width: 48, height: 48,
-            child: GestureDetector(
-              onTapDown: (_) => _sendBtnCtrl.forward(),
-              onTapUp: (_) {
-                _sendBtnCtrl.reverse();
-                _send(_ctrl.text);
+            child: TextField(
+              controller: _ctrl,
+              focusNode: _focus,
+              maxLines: 5,
+              minLines: 1,
+              textCapitalization: TextCapitalization.sentences,
+              style: const TextStyle(
+                  fontSize: 14, color: _textDark, height: 1.4),
+              decoration: InputDecoration(
+                hintText: _ready
+                    ? 'Message CampusMate AI...'
+                    : 'Loading your data...',
+                hintStyle:
+                TextStyle(color: Colors.grey[400], fontSize: 14),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 18, vertical: 12),
+              ),
+              onSubmitted: (v) {
+                if (!_busy) _send(v);
               },
-              onTapCancel: () => _sendBtnCtrl.reverse(),
-              child: ScaleTransition(
-                scale: _sendBtnAnim,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: hasText && !_busy
-                          ? [_headerStart, _headerEnd]
-                          : [Colors.grey.shade300, Colors.grey.shade400],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: hasText && !_busy
-                        ? [
-                      BoxShadow(
-                          color: _userBubble.withOpacity(0.4),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4))
-                    ]
-                        : [],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          width: 48, height: 48,
+          child: GestureDetector(
+            onTapDown: (_) => _sendBtnCtrl.forward(),
+            onTapUp: (_) {
+              _sendBtnCtrl.reverse();
+              _send(_ctrl.text);
+            },
+            onTapCancel: () => _sendBtnCtrl.reverse(),
+            child: ScaleTransition(
+              scale: _sendBtnAnim,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: hasText && !_busy
+                        ? [_headerStart, _headerEnd]
+                        : [Colors.grey.shade300, Colors.grey.shade400],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  child: Icon(
-                    _busy
-                        ? Icons.hourglass_empty_rounded
-                        : Icons.send_rounded,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: hasText && !_busy
+                      ? [
+                    BoxShadow(
+                        color: _userBubble.withOpacity(0.4),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4))
+                  ]
+                      : [],
+                ),
+                child: Icon(
+                  _busy
+                      ? Icons.hourglass_empty_rounded
+                      : Icons.send_rounded,
+                  color: Colors.white, size: 20,
                 ),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
   // ── Loading state ─────────────────────────────────────────────────────────
   Widget _buildLoadingState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 72, height: 72,
-            decoration: const BoxDecoration(
-              gradient:
-              LinearGradient(colors: [_headerStart, _headerEnd]),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.auto_awesome_rounded,
-                color: Colors.white, size: 34),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Container(
+          width: 72, height: 72,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(colors: [_headerStart, _headerEnd]),
+            shape: BoxShape.circle,
           ),
-          const SizedBox(height: 16),
-          const Text('Preparing your assistant...',
-              style: TextStyle(
-                  color: _headerStart,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Text('Loading attendance, tasks & notes',
-              style: TextStyle(
-                  color: Colors.grey[500], fontSize: 13)),
-          const SizedBox(height: 20),
-          const SizedBox(
-            width: 180,
-            child: LinearProgressIndicator(
-              color: _headerStart,
-              backgroundColor: Color(0xFFDDD9FF),
-              minHeight: 3,
-            ),
+          child: const Icon(Icons.auto_awesome_rounded,
+              color: Colors.white, size: 34),
+        ),
+        const SizedBox(height: 16),
+        const Text('Preparing your assistant...',
+            style: TextStyle(
+                color: _headerStart, fontSize: 15, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Text('Loading attendance, tasks, results & focus data',
+            style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+        const SizedBox(height: 20),
+        const SizedBox(
+          width: 180,
+          child: LinearProgressIndicator(
+            color: _headerStart,
+            backgroundColor: Color(0xFFDDD9FF),
+            minHeight: 3,
           ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 }
