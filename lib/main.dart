@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_foreground_task/ui/with_foreground_task.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -10,7 +11,7 @@ import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'screens/theme_provider.dart';
 import 'screens/planner_screen.dart';
-
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -47,7 +48,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
+    return WithForegroundTask(
+    child: ChangeNotifierProvider(
       create: (_) => ThemeProvider(),
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
@@ -68,6 +70,7 @@ class MyApp extends StatelessWidget {
           );
         },
       ),
+    ),
     );
   }
 }
