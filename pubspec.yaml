@@ -31,6 +31,14 @@ dependencies:
   flutter:
     sdk: flutter
 
+
+
+  audioplayers: ^6.1.0
+  flutter_foreground_task: ^8.13.0
+  permission_handler: ^11.3.1
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+
   cupertino_icons: ^1.0.8
   hive: ^2.2.3
   hive_flutter: ^1.1.0
@@ -44,6 +52,11 @@ dependencies:
   groq: ^1.1.1
   http: ^1.2.1
   flutter_dotenv: ^5.1.0
+  firebase_core: ^4.0.0
+  firebase_auth: ^6.0.0
+  cloud_firestore: ^6.0.0
+  open_filex: ^4.4.0
+
 
 
 dev_dependencies:
@@ -65,13 +78,18 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
 
-  # The following line ensures that the Material Icons font is
-  # included with your application, so that you can use the icons in
-  # the material Icons class.
   uses-material-design: true
 
   assets:
     - .env
+
+
+  # To add assets to your application, add an assets section, like this:
+  # assets:
+  #   - images/a_dot_burr.jpeg
+  #   - images/a_dot_ham.jpeg
+
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

@@ -44,7 +44,7 @@ Future<void> initNotifications() async {
       AndroidFlutterLocalNotificationsPlugin>()
       ?.requestNotificationsPermission();
 
-  await _notifPlugin
+  await _notifPlugin      //Allow this app to send notifications?
       .resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>()
       ?.createNotificationChannel(channel);
