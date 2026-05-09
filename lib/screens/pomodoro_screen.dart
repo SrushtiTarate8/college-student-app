@@ -31,6 +31,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'productivity_engine.dart';
 import 'theme_provider.dart';
 import 'focus_lock_service.dart';
+import 'package:share_plus/share_plus.dart';
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 1 — GAMIFICATION MODELS
@@ -878,38 +880,38 @@ class _AppBar extends StatelessWidget {
               );
             },
           ),
-          // Dark mode toggle (matches HomeScreen)
-          GestureDetector(
-            onTap: tp.toggleTheme,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              width: 52, height: 28,
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: isDark
-                    ? const LinearGradient(colors: [Color(0xFF43A047), Color(0xFF1B5E20)])
-                    : LinearGradient(colors: [Colors.grey.shade300, Colors.grey.shade200]),
-                boxShadow: [BoxShadow(
-                  color: isDark ? _T.accent.withOpacity(0.4) : Colors.black.withOpacity(0.1),
-                  blurRadius: 8, offset: const Offset(0, 2),
-                )],
-              ),
-              child: AnimatedAlign(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 22, height: 22,
-                  decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                  child: Center(child: Icon(
-                    isDark ? Icons.dark_mode_rounded : Icons.wb_sunny_rounded,
-                    color: isDark ? _T.accent : Colors.amber, size: 13,
-                  )),
-                ),
-              ),
-            ),
-          ),
+          // // Dark mode toggle (matches HomeScreen)
+          // GestureDetector(
+          //   onTap: tp.toggleTheme,
+          //   child: AnimatedContainer(
+          //     duration: const Duration(milliseconds: 300),
+          //     width: 52, height: 28,
+          //     padding: const EdgeInsets.all(3),
+          //     decoration: BoxDecoration(
+          //       borderRadius: BorderRadius.circular(20),
+          //       gradient: isDark
+          //           ? const LinearGradient(colors: [Color(0xFF43A047), Color(0xFF1B5E20)])
+          //           : LinearGradient(colors: [Colors.grey.shade300, Colors.grey.shade200]),
+          //       boxShadow: [BoxShadow(
+          //         color: isDark ? _T.accent.withOpacity(0.4) : Colors.black.withOpacity(0.1),
+          //         blurRadius: 8, offset: const Offset(0, 2),
+          //       )],
+          //     ),
+          //     child: AnimatedAlign(
+          //       duration: const Duration(milliseconds: 300),
+          //       curve: Curves.easeInOut,
+          //       alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
+          //       child: Container(
+          //         width: 22, height: 22,
+          //         decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+          //         child: Center(child: Icon(
+          //           isDark ? Icons.dark_mode_rounded : Icons.wb_sunny_rounded,
+          //           color: isDark ? _T.accent : Colors.amber, size: 13,
+          //         )),
+          //       ),
+          //     ),
+          //   ),
+          // ),
         ],
       ),
     );
@@ -1655,13 +1657,323 @@ class _StreakPage extends StatelessWidget {
             const SizedBox(height: 8),
             // Stats row
             _MiniStatsRow(engine: engine, gs: gs, isDark: isDark),
+
+            const SizedBox(height: 24),
+
+            _StreakShareCard(
+              engine: engine,
+              gs: gs,
+              isDark: isDark,
+            ),
           ]),
         );
       },
     );
   }
-}
+}class _StreakShareCard extends StatelessWidget {
+  final ProductivityEngine engine;
+  final GamificationState gs;
+  final bool isDark;
 
+  const _StreakShareCard({
+    required this.engine,
+    required this.gs,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final subject = engine.subjectManager.selected;
+    final streak = engine.streak.currentStreak;
+    final tree = engine.treeResult;
+    final level = gs.level;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(26),
+        gradient: LinearGradient(
+          colors: isDark
+              ? [
+            const Color(0xFF1B5E20),
+            const Color(0xFF2E7D32),
+          ]
+              : [
+            const Color(0xFF66BB6A),
+            const Color(0xFF43A047),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+
+          // Header
+          Row(
+            children: [
+
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: Text(
+                    '🔥',
+                    style: TextStyle(fontSize: 28),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 14),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+
+                    const Text(
+                      'Share Your Progress',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                      ),
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    Text(
+                      '${streak.toStringAsFixed(0)} day ${subject?.name ?? "Focus"} streak',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Stats card
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.08),
+              ),
+            ),
+            child: Column(
+              children: [
+
+                Row(
+                  children: [
+
+                    const Text(
+                      '🌳',
+                      style: TextStyle(fontSize: 42),
+                    ),
+
+                    const SizedBox(width: 14),
+
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+
+                          Text(
+                            tree != null
+                                ? _treeLabel(tree.stage)
+                                : 'Seed',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 17,
+                            ),
+                          ),
+
+                          const SizedBox(height: 4),
+
+                          Text(
+                            'Level $level • FocusGrove',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+
+                    _ShareStat(
+                      emoji: '🔥',
+                      label: 'Streak',
+                      value: streak.toStringAsFixed(0),
+                    ),
+
+                    _ShareStat(
+                      emoji: '⚡',
+                      label: 'Level',
+                      value: '$level',
+                    ),
+
+                    _ShareStat(
+                      emoji: '🎯',
+                      label: 'Sessions',
+                      value: '${gs.totalSessions}',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Share button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                try {
+
+                  final message = '''
+🔥 Your friend has completed a ${streak.toStringAsFixed(0)} day streak in ${subject?.name ?? "Focus"} on FocusGrove!
+
+🌳 Tree Stage: ${tree != null ? _treeLabel(tree.stage) : "Seed"}
+
+⚡ Level $level
+🎯 Total Sessions: ${gs.totalSessions}
+
+Stay focused. Stay growing 🌱
+''';
+
+                  await Share.share(message);
+
+                } catch (e) {
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Share failed: $e'),
+                    ),
+                  );
+                }
+              },
+
+              icon: const Icon(Icons.ios_share_rounded),
+
+              label: const Text(
+                'Share Streak',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.green.shade800,
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _treeLabel(TreeStage stage) {
+    switch (stage) {
+
+      case TreeStage.seed:
+        return 'Seed';
+
+      case TreeStage.sprout:
+        return 'Sprout';
+
+      case TreeStage.plant:
+        return 'Sapling';
+
+      case TreeStage.tree:
+        return 'Tree';
+
+      case TreeStage.bigTree:
+        return 'Ancient Tree';
+    }
+  }
+}
+class _ShareStat extends StatelessWidget {
+  final String emoji;
+  final String label;
+  final String value;
+
+  const _ShareStat({
+    required this.emoji,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+
+        Text(
+          emoji,
+          style: const TextStyle(fontSize: 20),
+        ),
+
+        const SizedBox(height: 6),
+
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            fontSize: 16,
+          ),
+        ),
+
+        const SizedBox(height: 2),
+
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+}
 class _StreakHero extends StatelessWidget {
   final StreakEngine streak;
   final bool isDark;
