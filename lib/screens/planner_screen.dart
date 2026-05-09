@@ -123,6 +123,45 @@ const List<String> kSubjectColors = [
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  SORT OPTIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+enum TaskSortOrder {
+  priorityHighToLow,
+  priorityLowToHigh,
+  timeOldestFirst,
+  timeNewestFirst,
+}
+
+extension TaskSortOrderExt on TaskSortOrder {
+  String get label {
+    switch (this) {
+      case TaskSortOrder.priorityHighToLow:
+        return 'Priority: High → Low';
+      case TaskSortOrder.priorityLowToHigh:
+        return 'Priority: Low → High';
+      case TaskSortOrder.timeOldestFirst:
+        return 'Time: Oldest → Latest';
+      case TaskSortOrder.timeNewestFirst:
+        return 'Time: Latest → Oldest';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case TaskSortOrder.priorityHighToLow:
+        return Icons.arrow_downward_rounded;
+      case TaskSortOrder.priorityLowToHigh:
+        return Icons.arrow_upward_rounded;
+      case TaskSortOrder.timeOldestFirst:
+        return Icons.schedule_rounded;
+      case TaskSortOrder.timeNewestFirst:
+        return Icons.history_rounded;
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  TASK MODEL
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -210,6 +249,17 @@ class Task {
         return const Color(0xFF66BB6A);
     }
   }
+
+  int get priorityWeight {
+    switch (priority) {
+      case 'high':
+        return 3;
+      case 'medium':
+        return 2;
+      default:
+        return 1;
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -227,6 +277,10 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
   late Box<List> _box;
   List<Task> _allTasks = [];
   String _filter = 'all';
+
+  // ── NEW: default sort is time oldest first (matches original behaviour) ──
+  TaskSortOrder _sortOrder = TaskSortOrder.timeOldestFirst;
+
   late AnimationController _fabAnimCtrl;
   late Animation<double> _fabAnim;
 
@@ -270,12 +324,35 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     _box.put('tasks', _allTasks.map((t) => t.toMap()).toList());
   }
 
+  // Persistent storage sort (by date then time) — unchanged
   void _sortTasks() {
     _allTasks.sort((a, b) {
       final dateCmp = a.dateKey.compareTo(b.dateKey);
       if (dateCmp != 0) return dateCmp;
       return (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute);
     });
+  }
+
+  // Display sort applied on the filtered list for UI only
+  List<Task> _applySortOrder(List<Task> tasks) {
+    final sorted = List<Task>.from(tasks);
+    switch (_sortOrder) {
+      case TaskSortOrder.priorityHighToLow:
+        sorted.sort((a, b) => b.priorityWeight.compareTo(a.priorityWeight));
+        break;
+      case TaskSortOrder.priorityLowToHigh:
+        sorted.sort((a, b) => a.priorityWeight.compareTo(b.priorityWeight));
+        break;
+      case TaskSortOrder.timeOldestFirst:
+        sorted.sort(
+                (a, b) => (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute));
+        break;
+      case TaskSortOrder.timeNewestFirst:
+        sorted.sort(
+                (a, b) => (b.hour * 60 + b.minute).compareTo(a.hour * 60 + a.minute));
+        break;
+    }
+    return sorted;
   }
 
   void _addTask(Task t) async {
@@ -345,20 +422,49 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     }
   }
 
+  // ── NEW: jump the calendar to today ─────────────────────────────────────
+  void _goToToday() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    setState(() {
+      _selectedDate = today;
+      _weekStart = today.subtract(Duration(days: today.weekday - 1));
+    });
+  }
+
+  // ── NEW: show sort bottom sheet ──────────────────────────────────────────
+  void _showSortSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SortSheet(
+        current: _sortOrder,
+        onSelected: (order) {
+          setState(() => _sortOrder = order);
+          Navigator.pop(context);
+        },
+      ),
+    );
+  }
+
   String get _selectedKey => Task.keyFromDate(_selectedDate);
 
   List<Task> get _dayTasks =>
       _allTasks.where((t) => t.dateKey == _selectedKey).toList();
 
   List<Task> get _filteredTasks {
+    List<Task> base;
     switch (_filter) {
       case 'done':
-        return _dayTasks.where((t) => t.isDone).toList();
+        base = _dayTasks.where((t) => t.isDone).toList();
+        break;
       case 'pending':
-        return _dayTasks.where((t) => !t.isDone).toList();
+        base = _dayTasks.where((t) => !t.isDone).toList();
+        break;
       default:
-        return _dayTasks;
+        base = _dayTasks;
     }
+    return _applySortOrder(base);
   }
 
   int get _completedCount => _dayTasks.where((t) => t.isDone).length;
@@ -452,20 +558,20 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     ];
     final days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
-    final weekDates = List.generate(7, (i) => _weekStart.add(Duration(days: i)));
+    final weekDates =
+    List.generate(7, (i) => _weekStart.add(Duration(days: i)));
 
     final firstMonth = months[weekDates.first.month - 1];
-    final lastMonth  = months[weekDates.last.month - 1];
+    final lastMonth = months[weekDates.last.month - 1];
     final monthLabel = firstMonth == lastMonth
         ? '$firstMonth ${weekDates.first.year}'
         : '$firstMonth – $lastMonth ${weekDates.last.year}';
 
-    final selLabel = _isToday(_selectedDate)
-        ? 'Today'
-        : '${days[_selectedDate.weekday - 1]}, '
-        '${_selectedDate.day} ${months[_selectedDate.month - 1]}';
+    // ── TOP-RIGHT: always shows TODAY's real date (fixed, never changes) ──
+    final now = DateTime.now();
+    final todayBadgeLabel = 'Today, ${now.day} ${months[now.month - 1]}';
 
-    final canPop = Navigator.of(context).canPop(); // ← for back button
+    final canPop = Navigator.of(context).canPop();
 
     return Container(
       decoration: const BoxDecoration(
@@ -474,21 +580,19 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius:
-        BorderRadius.vertical(bottom: Radius.circular(32)),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
       ),
       padding: EdgeInsets.fromLTRB(
           20, MediaQuery.of(context).padding.top + 14, 20, 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Top row ───────────────────────────────────────────────────
+          // ── Top row ──────────────────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
-                  // ✅ BACK BUTTON — only shows when there is a previous screen
                   if (canPop)
                     GestureDetector(
                       onTap: () => Navigator.of(context).pop(),
@@ -531,21 +635,33 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
                   ),
                 ],
               ),
-              // Selected day badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white30),
-                ),
-                child: Text(
-                  selLabel,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12),
+
+              // ── TODAY badge: fixed date, tap → jump to today ─────────────
+              GestureDetector(
+                onTap: _goToToday,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white30),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.today_rounded,
+                          color: Colors.white, size: 13),
+                      const SizedBox(width: 5),
+                      Text(
+                        todayBadgeLabel,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -798,44 +914,76 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
       ('done', 'Done', Icons.check_circle_rounded),
     ];
     return Row(
-      children: filters.map((f) {
-        final isActive = _filter == f.$1;
-        return Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: GestureDetector(
-            onTap: () => setState(() => _filter = f.$1),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: isActive ? kTeal : kCardWhite,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: isActive
-                    ? [
-                  BoxShadow(
-                      color: kTeal.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3))
-                ]
-                    : [],
-              ),
-              child: Row(
-                children: [
-                  Icon(f.$3,
-                      size: 14,
-                      color: isActive ? Colors.white : kTextMuted),
-                  const SizedBox(width: 5),
-                  Text(f.$2,
-                      style: TextStyle(
-                          color: isActive ? Colors.white : kTextMuted,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13)),
-                ],
+      children: [
+        // ── Existing filter chips (unchanged) ───────────────────────────
+        ...filters.map((f) {
+          final isActive = _filter == f.$1;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => setState(() => _filter = f.$1),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isActive ? kTeal : kCardWhite,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: isActive
+                      ? [
+                    BoxShadow(
+                        color: kTeal.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3))
+                  ]
+                      : [],
+                ),
+                child: Row(
+                  children: [
+                    Icon(f.$3,
+                        size: 14,
+                        color: isActive ? Colors.white : kTextMuted),
+                    const SizedBox(width: 5),
+                    Text(f.$2,
+                        style: TextStyle(
+                            color: isActive ? Colors.white : kTextMuted,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13)),
+                  ],
+                ),
               ),
             ),
+          );
+        }),
+
+        const Spacer(),
+
+        // ── NEW: Sort button ─────────────────────────────────────────────
+        GestureDetector(
+          onTap: _showSortSheet,
+          child: Container(
+            padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: kCardWhite,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: kTeal.withOpacity(0.35)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(_sortOrder.icon, size: 14, color: kTeal),
+                const SizedBox(width: 5),
+                const Text('Sort',
+                    style: TextStyle(
+                        color: kTeal,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+              ],
+            ),
           ),
-        );
-      }).toList(),
+        ),
+      ],
     );
   }
 
@@ -892,6 +1040,199 @@ class _PlannerHomeScreenState extends State<PlannerHomeScreen>
     if (h < 12) return 'Morning';
     if (h < 17) return 'Afternoon';
     return 'Evening';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  SORT BOTTOM SHEET  (NEW)
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _SortSheet extends StatelessWidget {
+  final TaskSortOrder current;
+  final void Function(TaskSortOrder) onSelected;
+
+  const _SortSheet({required this.current, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: kCardWhite,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(4)),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Title
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                    color: kTealLight,
+                    borderRadius: BorderRadius.circular(12)),
+                child: const Icon(Icons.sort_rounded,
+                    color: kTeal, size: 20),
+              ),
+              const SizedBox(width: 10),
+              const Text('Sort Tasks',
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: kTextDark)),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ── Priority section ────────────────────────────────────────────
+          _SortSectionLabel('BY PRIORITY'),
+          const SizedBox(height: 8),
+          _SortOptionTile(
+            icon: Icons.arrow_downward_rounded,
+            iconColor: const Color(0xFFEF5350),
+            label: 'High → Low',
+            sublabel: 'Show urgent tasks first',
+            selected: current == TaskSortOrder.priorityHighToLow,
+            onTap: () => onSelected(TaskSortOrder.priorityHighToLow),
+          ),
+          const SizedBox(height: 8),
+          _SortOptionTile(
+            icon: Icons.arrow_upward_rounded,
+            iconColor: const Color(0xFF66BB6A),
+            label: 'Low → High',
+            sublabel: 'Show easy tasks first',
+            selected: current == TaskSortOrder.priorityLowToHigh,
+            onTap: () => onSelected(TaskSortOrder.priorityLowToHigh),
+          ),
+          const SizedBox(height: 16),
+
+          // ── Time section ────────────────────────────────────────────────
+          _SortSectionLabel('BY TIME'),
+          const SizedBox(height: 8),
+          _SortOptionTile(
+            icon: Icons.schedule_rounded,
+            iconColor: kTeal,
+            label: 'Oldest → Latest',
+            sublabel: 'Earliest scheduled first',
+            selected: current == TaskSortOrder.timeOldestFirst,
+            onTap: () => onSelected(TaskSortOrder.timeOldestFirst),
+          ),
+          const SizedBox(height: 8),
+          _SortOptionTile(
+            icon: Icons.history_rounded,
+            iconColor: kAccentPurple,
+            label: 'Latest → Oldest',
+            sublabel: 'Latest scheduled first',
+            selected: current == TaskSortOrder.timeNewestFirst,
+            onTap: () => onSelected(TaskSortOrder.timeNewestFirst),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SortSectionLabel extends StatelessWidget {
+  final String text;
+  const _SortSectionLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    style: const TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+        color: kTextMuted,
+        letterSpacing: 1.0),
+  );
+}
+
+class _SortOptionTile extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String sublabel;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SortOptionTile({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.sublabel,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected ? kTeal.withOpacity(0.07) : kBgGrey,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? kTeal.withOpacity(0.4) : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: iconColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: iconColor, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: selected ? kTeal : kTextDark)),
+                  Text(sublabel,
+                      style: const TextStyle(
+                          fontSize: 11, color: kTextMuted)),
+                ],
+              ),
+            ),
+            if (selected)
+              Container(
+                width: 22,
+                height: 22,
+                decoration: const BoxDecoration(
+                    color: kTeal, shape: BoxShape.circle),
+                child: const Icon(Icons.check_rounded,
+                    color: Colors.white, size: 14),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -987,7 +1328,8 @@ class _TaskCardState extends State<_TaskCard>
                           height: 28,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: t.isDone ? kTeal : Colors.transparent,
+                            color:
+                            t.isDone ? kTeal : Colors.transparent,
                             border: Border.all(
                                 color: t.isDone ? kTeal : t.color,
                                 width: 2),
@@ -1025,7 +1367,9 @@ class _TaskCardState extends State<_TaskCard>
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
-                                  color: t.isDone ? kTextMuted : kTextDark,
+                                  color: t.isDone
+                                      ? kTextMuted
+                                      : kTextDark,
                                   decoration: t.isDone
                                       ? TextDecoration.lineThrough
                                       : null,
@@ -1036,8 +1380,10 @@ class _TaskCardState extends State<_TaskCard>
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
-                                color: t.priorityColor.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(8),
+                                color: t.priorityColor
+                                    .withOpacity(0.12),
+                                borderRadius:
+                                BorderRadius.circular(8),
                               ),
                               child: Text(
                                 t.priority.toUpperCase(),
@@ -1075,14 +1421,18 @@ class _TaskCardState extends State<_TaskCard>
                                 padding: const EdgeInsets.all(5),
                                 decoration: BoxDecoration(
                                   color: t.reminderOn
-                                      ? kAccentPurple.withOpacity(0.12)
+                                      ? kAccentPurple
+                                      .withOpacity(0.12)
                                       : kBgGrey,
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius:
+                                  BorderRadius.circular(8),
                                 ),
                                 child: Icon(
                                   t.reminderOn
-                                      ? Icons.notifications_active_rounded
-                                      : Icons.notifications_off_outlined,
+                                      ? Icons
+                                      .notifications_active_rounded
+                                      : Icons
+                                      .notifications_off_outlined,
                                   size: 14,
                                   color: t.reminderOn
                                       ? kAccentPurple
@@ -1099,8 +1449,10 @@ class _TaskCardState extends State<_TaskCard>
                               child: Container(
                                 padding: const EdgeInsets.all(5),
                                 decoration: BoxDecoration(
-                                  color: Colors.red.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(8),
+                                  color:
+                                  Colors.red.withOpacity(0.08),
+                                  borderRadius:
+                                  BorderRadius.circular(8),
                                 ),
                                 child: const Icon(
                                     Icons.delete_outline_rounded,
@@ -1148,7 +1500,9 @@ class _StatPill extends StatelessWidget {
           const SizedBox(width: 4),
           Text(label,
               style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: color)),
         ],
       ),
     );
@@ -1210,8 +1564,8 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
       context: context,
       initialTime: _time,
       builder: (ctx, child) => Theme(
-        data: ThemeData.light()
-            .copyWith(colorScheme: const ColorScheme.light(primary: kTeal)),
+        data: ThemeData.light().copyWith(
+            colorScheme: const ColorScheme.light(primary: kTeal)),
         child: child!,
       ),
     );
@@ -1225,8 +1579,8 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
       firstDate: DateTime.now().subtract(const Duration(days: 365)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
       builder: (ctx, child) => Theme(
-        data: ThemeData.light()
-            .copyWith(colorScheme: const ColorScheme.light(primary: kTeal)),
+        data: ThemeData.light().copyWith(
+            colorScheme: const ColorScheme.light(primary: kTeal)),
         child: child!,
       ),
     );
@@ -1253,24 +1607,23 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
         content: const Text('Please enter a subject name!'),
         backgroundColor: kAccentOrange,
         behavior: SnackBarBehavior.floating,
-        shape:
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
       ));
       return;
     }
 
     if (_reminderOn) {
-      final scheduled = DateTime(
-          _taskDate.year, _taskDate.month, _taskDate.day,
-          _time.hour, _time.minute);
+      final scheduled = DateTime(_taskDate.year, _taskDate.month,
+          _taskDate.day, _time.hour, _time.minute);
       if (scheduled.isBefore(DateTime.now())) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: const Text(
               '⚠️ Reminder time is in the past — notification won\'t fire.'),
           backgroundColor: kAccentOrange,
           behavior: SnackBarBehavior.floating,
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
         ));
       }
     }
@@ -1306,7 +1659,6 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Handle + close button ─────────────────────────────────
             Stack(
               alignment: Alignment.center,
               children: [
@@ -1319,7 +1671,6 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
                         borderRadius: BorderRadius.circular(4)),
                   ),
                 ),
-                // ✅ CLOSE button (top-right of sheet)
                 Align(
                   alignment: Alignment.centerRight,
                   child: GestureDetector(
@@ -1340,7 +1691,6 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
             ),
             const SizedBox(height: 16),
 
-            // Title row
             Row(
               children: [
                 Container(
@@ -1456,7 +1806,8 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
                     label: 'Medium',
                     color: const Color(0xFFFF9800),
                     selected: _priority == 'medium',
-                    onTap: () => setState(() => _priority = 'medium')),
+                    onTap: () =>
+                        setState(() => _priority = 'medium')),
                 const SizedBox(width: 8),
                 _PriorityChip(
                     label: 'High',
@@ -1491,7 +1842,8 @@ class _AddEditTaskSheetState extends State<_AddEditTaskSheet> {
                       boxShadow: selected
                           ? [
                         BoxShadow(
-                            color: c.withOpacity(0.5), blurRadius: 6)
+                            color: c.withOpacity(0.5),
+                            blurRadius: 6)
                       ]
                           : null,
                     ),
