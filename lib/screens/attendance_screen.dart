@@ -301,37 +301,38 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       // Dark mode toggle
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-        child: GestureDetector(
-          onTap: tp.toggleTheme,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            width: 48, height: 28,
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: isDark
-                  ? const LinearGradient(colors: [_C.primary, _C.primaryDk])
-                  : LinearGradient(colors: [Colors.grey.shade300, Colors.grey.shade200]),
-              boxShadow: [BoxShadow(
-                color: isDark ? _C.primary.withOpacity(0.35) : Colors.black.withOpacity(0.1),
-                blurRadius: 8, offset: const Offset(0, 2),
-              )],
-            ),
-            child: AnimatedAlign(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                width: 22, height: 22,
-                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                child: Center(child: Icon(
-                  isDark ? Icons.dark_mode_rounded : Icons.wb_sunny_rounded,
-                  color: isDark ? _C.primary : Colors.amber, size: 13,
-                )),
-              ),
-            ),
-          ),
-        ),
+        // child:
+        // GestureDetector(
+        //   onTap: tp.toggleTheme,
+        //   child: AnimatedContainer(
+        //     duration: const Duration(milliseconds: 300),
+        //     width: 48, height: 28,
+        //     padding: const EdgeInsets.all(3),
+        //     decoration: BoxDecoration(
+        //       borderRadius: BorderRadius.circular(20),
+        //       gradient: isDark
+        //           ? const LinearGradient(colors: [_C.primary, _C.primaryDk])
+        //           : LinearGradient(colors: [Colors.grey.shade300, Colors.grey.shade200]),
+        //       boxShadow: [BoxShadow(
+        //         color: isDark ? _C.primary.withOpacity(0.35) : Colors.black.withOpacity(0.1),
+        //         blurRadius: 8, offset: const Offset(0, 2),
+        //       )],
+        //     ),
+        //     child: AnimatedAlign(
+        //       duration: const Duration(milliseconds: 300),
+        //       curve: Curves.easeInOut,
+        //       alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
+        //       child: Container(
+        //         width: 22, height: 22,
+        //         decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+        //         child: Center(child: Icon(
+        //           isDark ? Icons.dark_mode_rounded : Icons.wb_sunny_rounded,
+        //           color: isDark ? _C.primary : Colors.amber, size: 13,
+        //         )),
+        //       ),
+        //     ),
+        //   ),
+        // ),
       ),
       // Overall % badge
       if (_tab != 4)
