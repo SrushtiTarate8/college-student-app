@@ -1105,56 +1105,56 @@ class _ResultScreenState extends State<ResultScreen>
         ),
       ),
       actions: [
-        GestureDetector(
-          onTap: () => themeProvider.toggleTheme(),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            width: 52,
-            height: 28,
-            margin: const EdgeInsets.only(right: 8),
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: isDark
-                  ? const LinearGradient(
-                colors: [Color(0xFFE53935), Color(0xFFB71C1C)],
-              )
-                  : LinearGradient(
-                colors: [Colors.grey.shade300, Colors.grey.shade200],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isDark
-                      ? const Color(0xFFE53935).withOpacity(0.4)
-                      : Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: AnimatedAlign(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              alignment:
-              isDark ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                width: 22,
-                height: 22,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Icon(
-                    isDark ? Icons.dark_mode_rounded : Icons.wb_sunny_rounded,
-                    color: isDark ? const Color(0xFFE53935) : Colors.amber,
-                    size: 13,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+        // GestureDetector(
+        //   onTap: () => themeProvider.toggleTheme(),
+        //   child: AnimatedContainer(
+        //     duration: const Duration(milliseconds: 300),
+        //     width: 52,
+        //     height: 28,
+        //     margin: const EdgeInsets.only(right: 8),
+        //     padding: const EdgeInsets.all(3),
+        //     decoration: BoxDecoration(
+        //       borderRadius: BorderRadius.circular(20),
+        //       gradient: isDark
+        //           ? const LinearGradient(
+        //         colors: [Color(0xFFE53935), Color(0xFFB71C1C)],
+        //       )
+        //           : LinearGradient(
+        //         colors: [Colors.grey.shade300, Colors.grey.shade200],
+        //       ),
+        //       boxShadow: [
+        //         BoxShadow(
+        //           color: isDark
+        //               ? const Color(0xFFE53935).withOpacity(0.4)
+        //               : Colors.black.withOpacity(0.1),
+        //           blurRadius: 8,
+        //           offset: const Offset(0, 2),
+        //         ),
+        //       ],
+        //     ),
+        //     child: AnimatedAlign(
+        //       duration: const Duration(milliseconds: 300),
+        //       curve: Curves.easeInOut,
+        //       alignment:
+        //       isDark ? Alignment.centerRight : Alignment.centerLeft,
+        //       child: Container(
+        //         width: 22,
+        //         height: 22,
+        //         decoration: const BoxDecoration(
+        //           color: Colors.white,
+        //           shape: BoxShape.circle,
+        //         ),
+        //         child: Center(
+        //           child: Icon(
+        //             isDark ? Icons.dark_mode_rounded : Icons.wb_sunny_rounded,
+        //             color: isDark ? const Color(0xFFE53935) : Colors.amber,
+        //             size: 13,
+        //           ),
+        //         ),
+        //       ),
+        //     ),
+        //   ),
+        // ),
         Consumer<ResultPredictionProvider>(
           builder: (context, provider, _) => IconButton(
             icon: Icon(Icons.refresh_rounded,
